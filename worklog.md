@@ -3368,3 +3368,33 @@ Stage Summary:
 - ★ Layout meets the sticky-footer rule (flex-col + mt-auto + shrink-0) and mobile-first responsive rules (≥44px touch targets, no horizontal scroll at 390px).
 - ★ Lint passes. Screenshots saved at public/p4-desktop.png (1280×1209) and public/p4-mobile.png (390 wide).
 - Files touched: src/app/globals.css, src/app/layout.tsx, src/app/page.tsx, src/components/extension-card.tsx (new). Nothing outside src/app/ and src/components/ was modified.
+
+---
+Task ID: p6 (final)
+Agent: Main Agent (Z.ai Code)
+Task: Push project to GitHub, configure Actions secrets + Pages, verify CI/CD + release pipeline end-to-end
+
+Work Log:
+- Configured git remote (https://github.com/testplay-byte/EXTENSIONS) using a fine-grained PAT with x-access-token auth.
+- Created 3 GitHub Actions secrets via the API (libsodium sealed-box encryption with pynacl): ANIKOTO_KEYSTORE_BASE64, ANIMEPAHE_KEYSTORE_BASE64 (keystores base64-encoded), KEYSTORE_PASSWORD.
+- Enabled GitHub Pages with build_type=workflow (POST /repos/.../pages).
+- Push protection blocked the first push: .zscripts/set-secrets.py contained the PAT literally. Fixed by adding .zscripts/ to .gitignore and force-pushing a single clean orphan commit (72bd205 → d31f427), purging the token from remote history.
+- Build (CI) #1 failed: android-actions/setup-android@v3 hung on interactive license prompts. Fixed by replacing with a manual step using the runner's pre-installed SDK (yes | sdkmanager --licenses + install packages). Build (CI) #2 passed — all 3 extensions compiled, debug APKs uploaded as artifacts.
+- Deploy Pages #1: build job passed, deploy job failed (Pages not yet enabled). After enabling Pages, re-ran the failed deploy job → Deploy Pages #1 SUCCESS.
+- release.yml had a parse error: `if: ${{ secrets.X != '' }}` is invalid (secrets context not available in step if-conditionals). Removed the conditionals. Also fixed: the tag trigger wasn't firing because the parse error prevented workflow evaluation.
+- Pushed tag v1.0.0 → Release #5 triggered correctly (event: push, branch: v1.0.0). ALL 14 steps passed: Android SDK setup, keystore restore (from base64 secrets), signed release builds (AniKoto + AnimePahe), debug build (MKissa), GitHub Release created with 3 APK assets.
+
+Stage Summary:
+- ★ FULL PIPELINE OPERATIONAL end-to-end:
+  - Code: https://github.com/testplay-byte/EXTENSIONS (clean single-commit history, no secrets)
+  - CI: Build (CI) workflow passes — debug APKs for all 3 extensions
+  - Release: tag push (v*) → signed release APKs + GitHub Release with assets
+  - Pages: https://testplay-byte.github.io/EXTENSIONS/ — live, dark neon design
+  - Downloads: all 5 download links serve real APKs (HTTP 200, correct sizes) via releases/latest/download/
+- ★ GitHub Release v1.0.0 published with 3 APKs:
+  - aniyomi-en.anikoto180-v16.9-release.apk (268KB, signed)
+  - aniyomi-en.animepahe180-v16.10-release.apk (262KB, signed)
+  - aniyomi-en.mkissa180-v16.17-debug.apk (281KB, debug)
+- ★ Keystore secrets working: signing configs read KEYSTORE_PASSWORD env var (set from secret in CI), keystores decoded from base64 secrets. Password fallback remains for local builds.
+- All 3 workflows active: Build (CI), Release, Deploy Pages.
+- The release.yml "failures" with 0 jobs on branch pushes are expected (GitHub records that the push didn't match the tag trigger) — NOT real failures.

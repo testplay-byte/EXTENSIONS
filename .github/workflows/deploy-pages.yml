@@ -61,6 +61,32 @@ jobs:
           echo "=== Build output ==="
           ls -la out/ | head -20
 
+      # Fetch the latest release's APKs into the Pages site so download links
+      # are SAME-ORIGIN (/EXTENSIONS/downloads/<file>). Cross-origin <a download>
+      # pointing at github.com is ignored by browsers and the release CDN sends
+      # no CORS headers — so serving APKs from Pages is the only way to make
+      # "download directly from the webpage" work reliably (incl. in iframes).
+      - name: Fetch latest release APKs into Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p out/downloads
+          echo "Querying latest release assets…"
+          ASSETS=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/testplay-byte/EXTENSIONS/releases/latest" \
+            | python3 -c "import sys,json; [print(a['browser_download_url']) for a in json.load(sys.stdin).get('assets',[]) if a['name'].endswith('.apk')]" 2>/dev/null || true)
+          if [ -z "$ASSETS" ]; then
+            echo "  (no release assets found — out/downloads/ will be empty; downloads will 404 until a release exists)"
+          else
+            echo "$ASSETS" | while read -r url; do
+              [ -z "$url" ] && continue
+              name=$(basename "$url")
+              curl -fL -o "out/downloads/$name" "$url" && echo "  ✓ fetched $name ($(wc -c < "out/downloads/$name") bytes)"
+            done
+          fi
+          echo "=== out/downloads/ ==="
+          ls -la out/downloads/ 2>/dev/null || true
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:

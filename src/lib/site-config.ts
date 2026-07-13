@@ -90,10 +90,20 @@ export const EXTENSIONS: ExtensionMeta[] = [
   },
 ];
 
-// Build the GitHub Release download URL for an extension's APK.
+// Build the download URL for an extension's APK.
+//
+// APKs are built + signed by the Release workflow and attached to a GitHub
+// Release. The Deploy Pages workflow then copies the latest release's APKs
+// into the Pages site at /downloads/<filename>, so download links are
+// SAME-ORIGIN. This is important: cross-origin <a download> (pointing at
+// github.com) is ignored by browsers and the GitHub release CDN sends no CORS
+// headers — so neither the download attribute nor fetch() would work. Serving
+// the APKs same-origin from Pages makes <a download> download directly,
+// in-page, with no navigation.
+//
 // Filename pattern: aniyomi-en.<id>180-v<version>-<type>.apk
+// (matches base.archivesName.set("aniyomi-en.<id>180-v$versionName") in build.gradle.kts)
 export function apkUrl(ext: ExtensionMeta, type: BuildType): string {
-  // version is like "v16.9" → keep as-is (matches base.archivesName "v$versionName")
   const filename = `aniyomi-en.${ext.id}180-${ext.version}-${type}.apk`;
-  return `${RELEASES_BASE}/${filename}`;
+  return `${BASE_PATH}/downloads/${filename}`;
 }

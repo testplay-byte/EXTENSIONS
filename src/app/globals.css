@@ -135,24 +135,35 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    /* Per DESIGN §14 — base background gets a subtle radial accent glow
-       layered over the flat #1e1e24 to avoid a dead-flat canvas. */
+    /* Rich layered background: vibrant accent radials + a soft vignette for
+       depth, so the canvas pops instead of looking flat. The drifting aurora
+       blobs in page.tsx add motion on top of this. */
     background-color: #1e1e24;
     background-image:
       radial-gradient(
-        900px 600px at 50% -8%,
-        rgba(188, 255, 95, 0.06),
+        1000px 700px at 50% -10%,
+        rgba(188, 255, 95, 0.1),
+        transparent 65%
+      ),
+      radial-gradient(
+        800px 600px at 100% 100%,
+        rgba(95, 201, 255, 0.08),
+        transparent 65%
+      ),
+      radial-gradient(
+        800px 600px at 0% 80%,
+        rgba(255, 95, 126, 0.07),
+        transparent 65%
+      ),
+      radial-gradient(
+        600px 400px at 80% 15%,
+        rgba(188, 255, 95, 0.05),
         transparent 70%
       ),
       radial-gradient(
-        700px 500px at 100% 100%,
-        rgba(95, 201, 255, 0.05),
-        transparent 70%
-      ),
-      radial-gradient(
-        700px 500px at 0% 90%,
-        rgba(255, 95, 126, 0.04),
-        transparent 70%
+        circle at 50% 45%,
+        transparent 35%,
+        rgba(0, 0, 0, 0.28) 100%
       );
     background-attachment: fixed;
     min-height: 100dvh;
@@ -208,27 +219,55 @@
   background-color: rgba(255, 255, 255, 0.2);
 }
 
-/* ── Ambient orb drift (DESIGN §14.3) ─────────────────────────────────── */
-@keyframes orb-float {
+/* ── Ambient aurora drift (richer than the old orb-float) ─────────────── */
+@keyframes aurora-1 {
   0%,
   100% {
-    transform: translate(0, 0);
+    transform: translate(0, 0) scale(1);
+  }
+  33% {
+    transform: translate(45px, -35px) scale(1.12);
+  }
+  66% {
+    transform: translate(-30px, 40px) scale(0.92);
+  }
+}
+@keyframes aurora-2 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
   }
   50% {
-    transform: translate(10px, -10px);
+    transform: translate(-55px, 30px) scale(1.18);
   }
 }
-.orb-float {
-  animation: orb-float 10s ease-in-out infinite;
+@keyframes aurora-3 {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(35px, -45px) scale(1.1);
+  }
 }
-.orb-float-reverse {
-  animation: orb-float 12s ease-in-out infinite reverse;
+.aurora-blob {
+  animation: aurora-1 18s ease-in-out infinite;
+  will-change: transform;
+}
+.aurora-blob-2 {
+  animation: aurora-2 22s ease-in-out infinite;
+  will-change: transform;
+}
+.aurora-blob-3 {
+  animation: aurora-3 20s ease-in-out infinite;
+  will-change: transform;
 }
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
-  .orb-float,
-  .orb-float-reverse {
+  .aurora-blob,
+  .aurora-blob-2,
+  .aurora-blob-3 {
     animation: none;
   }
   html {

@@ -34,6 +34,7 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: `${BASE_PATH}/logo-mark.svg`, type: "image/svg+xml" },
       { url: `${BASE_PATH}/pwa-icon-192.png`, sizes: "192x192", type: "image/png" },
       { url: `${BASE_PATH}/pwa-icon-512.png`, sizes: "512x512", type: "image/png" },
     ],

@@ -27,6 +27,7 @@ on:
 
 permissions:
   contents: write   # needed by softprops/action-gh-release to create the release
+  actions: write    # needed to trigger the Pages redeploy workflow after release
 
 jobs:
   release:
@@ -109,3 +110,13 @@ jobs:
           generate_release_notes: true
           files: release-assets/*.apk
           fail_on_unmatched_files: true
+
+      # Re-deploy Pages so the new APKs are copied into /downloads/ and the
+      # site's same-origin download links serve the freshly built APKs.
+      - name: Trigger Pages redeploy
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run deploy-pages.yml --repo testplay-byte/EXTENSIONS --ref main \
+            && echo "✓ deploy-pages triggered"

@@ -36,30 +36,23 @@ const heroPills = [
 export default function Home() {
   return (
     <div className="relative flex min-h-dvh flex-col overflow-x-hidden">
-      {/* ── Ambient aurora background ──────────────────────────────────── */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
-      >
-        {/* Large vibrant drifting aurora blobs (lime / sky / coral) */}
-        <div className="aurora-blob absolute -left-40 -top-40 h-[30rem] w-[30rem] rounded-full bg-accent-lime/[0.16] blur-[120px]" />
-        <div className="aurora-blob-2 absolute -right-44 top-1/4 h-[28rem] w-[28rem] rounded-full bg-accent-sky/[0.15] blur-[120px]" />
-        <div className="aurora-blob-3 absolute bottom-[-12rem] left-1/3 h-[32rem] w-[32rem] rounded-full bg-accent-coral/[0.12] blur-[140px]" />
-        <div className="aurora-blob absolute top-1/2 left-1/2 h-[22rem] w-[22rem] rounded-full bg-accent-sky/[0.08] blur-[120px]" />
-        {/* Top spotlight */}
+      {/* ── Structured background: line grid + dot grid (restored) ─────── */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 -z-10">
+        {/* Faint line grid — the primary structured pattern */}
+        <div className="line-grid absolute inset-0 opacity-100" />
+        {/* Dot grid overlaid at the same spacing — dots sit at the line
+            intersections, giving a clean technical grid feel without color. */}
+        <div className="dot-grid absolute inset-0 opacity-100" />
+        {/* Soft top-down fade so the grid is subtler at the very top/bottom
+            and the content stays the focal point. */}
         <div
-          className="absolute left-1/2 top-0 h-[520px] w-[820px] max-w-[120vw] -translate-x-1/2 rounded-full blur-[100px]"
+          className="absolute inset-0"
           style={{
             background:
-              "radial-gradient(closest-side, rgba(188, 255, 95, 0.16), transparent 75%)",
+              "linear-gradient(to bottom, rgba(30,30,36,0.4) 0%, transparent 18%, transparent 82%, rgba(30,30,36,0.4) 100%)",
           }}
         />
       </div>
-      {/* Faint dot grid over the whole canvas */}
-      <div
-        aria-hidden
-        className="grid-pattern pointer-events-none fixed inset-0 -z-10 opacity-40"
-      />
 
       {/* ── Floating glass nav bar (NOT sticky — scrolls with the page) ── */}
       <header className="relative z-40 px-4 pt-4 sm:pt-6">

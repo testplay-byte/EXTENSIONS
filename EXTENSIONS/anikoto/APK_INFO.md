@@ -37,8 +37,8 @@
 | **Keystore file** | `anikoto-release.jks` |
 | **Keystore type** | PKCS12 |
 | **Keystore alias** | `anikoto` |
-| **Keystore password** | `Confused1118000Creature.xyz` |
-| **Key password** | `Confused1118000Creature.xyz` |
+| **Keystore password** | `$KEYSTORE_PASSWORD` |
+| **Key password** | `$KEYSTORE_PASSWORD` |
 | **Key algorithm** | RSA 2048-bit |
 | **Validity** | 10,000 days (expires ~2053) |
 | **Certificate DN** | `CN=Confused_Creature, OU=180, O=AniKoto, L=Unknown, ST=Unknown, C=Unknown` |
@@ -46,7 +46,7 @@
 
 ### ⚠️ CRITICAL — Keep the keystore safe
 
-The keystore file (`anikoto-release.jks`) and password (`Confused1118000Creature.xyz`) are required for ALL future updates. If you lose them:
+The keystore file (`anikoto-release.jks`) and password (`$KEYSTORE_PASSWORD`) are required for ALL future updates. If you lose them:
 
 - You **cannot** publish an update with the same package signature
 - Users must **uninstall** the old extension before installing a new one (Android sees a different signature as a different app)

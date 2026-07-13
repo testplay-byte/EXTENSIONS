@@ -1087,7 +1087,7 @@ Work Log:
 - Synced APK to WORKSPACE/APK/ + WORKSPACE/DEV/ANIKOTO/APK/.
 - Analyzed upload/APK_INFO.md (published v16.5 release APK info). Found TWO CRITICAL discrepancies:
   (1) Extension name: published="AniKoto 180" (→ MD5("anikoto 180/en/11")), dev="Anikoto" (→ MD5("anikoto/en/11")) — DIFFERENT source IDs → saved anime from v16.5 would be orphaned if user upgrades to dev builds. APK_INFO explicitly warns to keep name="AniKoto 180" unchanged.
-  (2) Keystore file anikoto-release.jks is NOT in the workspace (didn't survive backup) — cannot build signed release APKs without it. Need user to provide it. Details: PKCS12, alias=anikoto, password=Confused1118000Creature.xyz.
+  (2) Keystore file anikoto-release.jks is NOT in the workspace (didn't survive backup) — cannot build signed release APKs without it. Need user to provide it. Details: PKCS12, alias=anikoto, password=$KEYSTORE_PASSWORD.
 - Other findings from APK_INFO: published v16.5 has no WRITE_EXTERNAL_STORAGE (file logging disabled for release) but our manifest has it (maxSdk 28) — fine for debug, should be removed for release. Published app label="AniKoto 180" but our extName="Anikoto" produces "Aniyomi: Anikoto" — display-name difference.
 - Wrote session log: MEMORY/session-logs/2026-06-26_session-45_kiwi-toggle-and-apk-analysis.md
 - Appended this worklog entry
@@ -1097,7 +1097,7 @@ Stage Summary:
 - All §7 verification checks pass. No regressions.
 - TWO CRITICAL user decisions needed before publishable release builds:
   1. Should name change from "Anikoto" → "AniKoto 180" to match published v16.5 (preserves saved anime for v16.5 users)?
-  2. Please provide anikoto-release.jks keystore file (PKCS12, alias=anikoto, password=Confused1118000Creature.xyz)
+  2. Please provide anikoto-release.jks keystore file (PKCS12, alias=anikoto, password=$KEYSTORE_PASSWORD)
 - Publishable APK setup guidance prepared (separate from code changes): need BuildConfig.DEBUG gating for file logging, signingConfigs in build.gradle.kts, remove WRITE_EXTERNAL_STORAGE for release — all pending user Q&A
 
 ---
@@ -1106,7 +1106,7 @@ Agent: main (Z.ai Code orchestrator)
 Task: Build signed release APK v16.6 — match published v16.5 identity (name "AniKoto 180", source ID, keystore), switch to logcat-only logging, apply new app icon, versionCode=6.
 
 Work Log:
-- Read uploaded files: anikoto-release.jks (2762 bytes), keystore-info.txt (alias=anikoto, password=Confused1118000Creature.xyz), Anikoto_Icon.png (1000x1000 RGBA)
+- Read uploaded files: anikoto-release.jks (2762 bytes), keystore-info.txt (alias=anikoto, password=$KEYSTORE_PASSWORD), Anikoto_Icon.png (1000x1000 RGBA)
 - Verified keystore: keytool confirms PKCS12, alias=anikoto, owner CN=Confused_Creature OU=180 O=AniKoto, SHA-256=b467ca64... matches APK_INFO.md exactly
 - Moved keystore to DEVELOPMENT_CODE/anikoto-release.jks + keystore-info.txt. Added *.jks + keystore-info.txt to .gitignore (never commit keystore)
 - Generated 5 icon densities from 1000x1000 source using Python Pillow (LANCZOS): mdpi 48x48 (5.5KB), hdpi 72x72 (11KB), xhdpi 96x96 (19KB), xxhdpi 144x144 (42KB), xxxhdpi 192x192 (73KB). Replaced res/mipmap-*/ic_launcher.png in all 5 folders
@@ -2094,7 +2094,7 @@ Task: Replace the temporary icon with the user's icon, generate a per-extension 
 
 Work Log:
 - Icon replacement: the user provided ANIMEPAHE_ICON.png (1024×1024 RGBA). Resized to all 5 mipmap densities (48, 72, 96, 144, 192) using Python PIL with LANCZOS resampling. Copied the full-res 1024×1024 to public/animepahe-icon.png for the webpage. All old temporary icons replaced.
-- Keystore generation: generated animepahe-release.jks (RSA 2048, validity 10000 days, DN: CN=AnimePahe 180, O=Confused_Creature_180, C=US). Password: Confused1118000Creature.xyz (same convention as AniKoto). Saved keystore-info.txt with SHA-256 fingerprint. Added *.jks + keystore-info.txt to .gitignore.
+- Keystore generation: generated animepahe-release.jks (RSA 2048, validity 10000 days, DN: CN=AnimePahe 180, O=Confused_Creature_180, C=US). Password: $KEYSTORE_PASSWORD (same convention as AniKoto). Saved keystore-info.txt with SHA-256 fingerprint. Added *.jks + keystore-info.txt to .gitignore.
 - Updated build.gradle.kts: set the keystore storePassword + keyPassword to the correct value. The signing config references rootProject.file("animepahe-release.jks").
 - Release build: ./gradlew :src:en:animepahe:assembleRelease — BUILD SUCCESSFUL in 41s. R8 minification ran successfully. ProGuard rules kept all extension classes + $$serializer classes + JsUnpacker classes.
 - Build checklist (ALL PASS):
@@ -2219,7 +2219,7 @@ EXTENSIONS/<name>/DEV/
 ├── common/proguard-rules.pro     # SHARED — keep ext package + $$serializer classes
 ├── stubs/                        # ext-lib v16 API stubs (compileOnly)
 │   └── src/main/kotlin/eu/kanade/tachiyomi/...
-├── <name>-release.jks            # per-ext keystore (Confused1118000Creature.xyz)
+├── <name>-release.jks            # per-ext keystore ($KEYSTORE_PASSWORD)
 └── src/en/<name>/
     ├── build.gradle.kts
     └── src/main/

@@ -33,7 +33,7 @@ cd /home/z/my-project/EXTENSIONS/mkissa/DEV
 # → src/en/mkissa/build/outputs/apk/debug/aniyomi-en.mkissa180-v16.17-debug.apk (~275KB)
 
 # Release APK (signed, R8 — requires keystore; NOT YET GENERATED)
-# keytool -genkeypair -keystore mkissa-release.jks -alias mkissa -keyalg RSA -keysize 2048 -validity 10000 -storepass Confused1118000Creature.xyz -keypass Confused1118000Creature.xyz -dname "CN=MKissa 180, O=Confused_Creature_180, C=US"
+# keytool -genkeypair -keystore mkissa-release.jks -alias mkissa -keyalg RSA -keysize 2048 -validity 10000 -storepass $KEYSTORE_PASSWORD -keypass $KEYSTORE_PASSWORD -dname "CN=MKissa 180, O=Confused_Creature_180, C=US"
 # ./gradlew :src:en:mkissa:assembleRelease --no-daemon
 ```
 

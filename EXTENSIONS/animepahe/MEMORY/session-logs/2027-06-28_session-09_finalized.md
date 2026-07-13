@@ -25,7 +25,7 @@ how to generate a temporary icon before the user provides the real one.
 ### 2. Keystore — per-extension signing key
 
 Generated `animepahe-release.jks` (RSA 2048, 10000-day validity, DN: CN=AnimePahe 180,
-O=Confused_Creature_180, C=US). Password: Confused1118000Creature.xyz (same convention as AniKoto).
+O=Confused_Creature_180, C=US). Password: $KEYSTORE_PASSWORD (same convention as AniKoto).
 SHA-256: cfaee692a7bf280f76027b56408477a0b77a8309fe0b64a8ccadbd9965762c9d.
 Added *.jks + keystore-info.txt to .gitignore.
 

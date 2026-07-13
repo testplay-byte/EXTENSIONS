@@ -56,12 +56,16 @@ android {
     // ★ session 46: release signing config — uses anikoto-release.jks (Confused_Creature / 180)
     // The keystore must stay at DEVELOPMENT_CODE/anikoto-release.jks for all future releases.
     // If lost, users must uninstall the old extension before installing a new one (signature mismatch).
+    //
+    // ★ Security: the password is read ONLY from the KEYSTORE_PASSWORD env var (no hardcoded
+    // fallback). In CI it's set from the GitHub Actions secret. For local builds, export it:
+    //   export KEYSTORE_PASSWORD=...   (see EXTENSIONS/anikoto/DEV/keystore-info.txt, gitignored)
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("anikoto-release.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias = "anikoto"
-            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
         }
     }
 

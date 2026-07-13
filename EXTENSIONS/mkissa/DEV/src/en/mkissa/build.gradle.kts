@@ -41,14 +41,18 @@ android {
     }
 
     // ★ Release signing config — uses mkissa-release.jks (per-extension keystore).
-    // Generate with: keytool -genkeypair -keystore mkissa-release.jks -alias mkissa -keyalg RSA -keysize 2048 -validity 10000 -storepass Confused1118000Creature.xyz -keypass Confused1118000Creature.xyz -dname "CN=MKissa 180, O=Confused_Creature_180, C=US"
+    // Generate with: keytool -genkeypair -keystore mkissa-release.jks -alias mkissa -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" -dname "CN=MKissa 180, O=Confused_Creature_180, C=US"
     // Debug builds don't need it; assembleRelease will fail until generated.
+    //
+    // ★ Security: the password is read ONLY from the KEYSTORE_PASSWORD env var (no hardcoded
+    // fallback). In CI it's set from the GitHub Actions secret. For local builds, export it:
+    //   export KEYSTORE_PASSWORD=...   (see EXTENSIONS/mkissa/DEV/keystore-info.txt, gitignored)
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("mkissa-release.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias = "mkissa"
-            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
         }
     }
 

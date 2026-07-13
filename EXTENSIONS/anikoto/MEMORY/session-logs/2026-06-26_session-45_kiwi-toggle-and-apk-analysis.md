@@ -158,8 +158,8 @@ survive). Without this keystore:
 publishable release APKs. Details:
 - Keystore type: PKCS12
 - Alias: `anikoto`
-- Keystore password: `Confused1118000Creature.xyz`
-- Key password: `Confused1118000Creature.xyz`
+- Keystore password: `$KEYSTORE_PASSWORD`
+- Key password: `$KEYSTORE_PASSWORD`
 
 ### Other notes from APK_INFO analysis
 

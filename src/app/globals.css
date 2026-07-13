@@ -135,37 +135,11 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    /* Rich layered background: vibrant accent radials + a soft vignette for
-       depth, so the canvas pops instead of looking flat. The drifting aurora
-       blobs in page.tsx add motion on top of this. */
+    /* Clean flat dark canvas. The structured grid + dots live in page.tsx
+       as fixed overlays (kept there so they sit below content with -z-10).
+       No colorful radials — the background is deliberately neutral so the
+       accent colors come from the content (cards, buttons) instead. */
     background-color: #1e1e24;
-    background-image:
-      radial-gradient(
-        1000px 700px at 50% -10%,
-        rgba(188, 255, 95, 0.1),
-        transparent 65%
-      ),
-      radial-gradient(
-        800px 600px at 100% 100%,
-        rgba(95, 201, 255, 0.08),
-        transparent 65%
-      ),
-      radial-gradient(
-        800px 600px at 0% 80%,
-        rgba(255, 95, 126, 0.07),
-        transparent 65%
-      ),
-      radial-gradient(
-        600px 400px at 80% 15%,
-        rgba(188, 255, 95, 0.05),
-        transparent 70%
-      ),
-      radial-gradient(
-        circle at 50% 45%,
-        transparent 35%,
-        rgba(0, 0, 0, 0.28) 100%
-      );
-    background-attachment: fixed;
     min-height: 100dvh;
   }
 
@@ -177,13 +151,22 @@
   }
 }
 
-/* ── Background texture utilities (DESIGN §14) ────────────────────────── */
-@utility grid-pattern {
+/* ── Background texture utilities ─────────────────────────────────────── */
+/* Faint line grid — the primary structured background pattern. */
+@utility line-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+/* Faint dot grid — restored per user request; sits on top of the line grid
+   at a larger spacing so the two patterns don't fight each other. */
+@utility dot-grid {
   background-image: radial-gradient(
-    rgba(255, 255, 255, 0.03) 1px,
-    transparent 1px
+    rgba(255, 255, 255, 0.06) 1.1px,
+    transparent 1.1px
   );
-  background-size: 24px 24px;
+  background-size: 44px 44px;
 }
 
 @utility noise-bg {
@@ -219,57 +202,8 @@
   background-color: rgba(255, 255, 255, 0.2);
 }
 
-/* ── Ambient aurora drift (richer than the old orb-float) ─────────────── */
-@keyframes aurora-1 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(45px, -35px) scale(1.12);
-  }
-  66% {
-    transform: translate(-30px, 40px) scale(0.92);
-  }
-}
-@keyframes aurora-2 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(-55px, 30px) scale(1.18);
-  }
-}
-@keyframes aurora-3 {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  50% {
-    transform: translate(35px, -45px) scale(1.1);
-  }
-}
-.aurora-blob {
-  animation: aurora-1 18s ease-in-out infinite;
-  will-change: transform;
-}
-.aurora-blob-2 {
-  animation: aurora-2 22s ease-in-out infinite;
-  will-change: transform;
-}
-.aurora-blob-3 {
-  animation: aurora-3 20s ease-in-out infinite;
-  will-change: transform;
-}
-
-/* Respect reduced motion */
+/* Respect reduced motion — nothing animated now, but keep the scroll guard. */
 @media (prefers-reduced-motion: reduce) {
-  .aurora-blob,
-  .aurora-blob-2,
-  .aurora-blob-3 {
-    animation: none;
-  }
   html {
     scroll-behavior: auto;
   }

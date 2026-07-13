@@ -50,12 +50,16 @@ android {
     // ★ Release signing config — uses animepahe-release.jks (per-extension keystore).
     // The keystore will be generated in Step 5 (release). Debug builds don't need it.
     // If the keystore is missing, assembleDebug still works; assembleRelease will fail until generated.
+    //
+    // ★ Security: the password is read ONLY from the KEYSTORE_PASSWORD env var (no hardcoded
+    // fallback). In CI it's set from the GitHub Actions secret. For local builds, export it:
+    //   export KEYSTORE_PASSWORD=...   (see EXTENSIONS/animepahe/DEV/keystore-info.txt, gitignored)
     signingConfigs {
         create("release") {
             storeFile = rootProject.file("animepahe-release.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
             keyAlias = "animepahe"
-            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: "Confused1118000Creature.xyz"
+            keyPassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
         }
     }
 

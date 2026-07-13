@@ -169,7 +169,7 @@ and download buttons (release + debug APKs).
 
 Both keystores are included in this backup. They are the signing keys for the extensions.
 **Keep this backup secure.** If someone obtains a keystore + password
-(`Confused1118000Creature.xyz`), they could sign malicious APKs as your extensions.
+(`$KEYSTORE_PASSWORD`), they could sign malicious APKs as your extensions.
 
 The keystores are in `.gitignore` — they will NOT be committed to git. But they ARE in this zip.
 Store this zip in a secure location.

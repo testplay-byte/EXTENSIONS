@@ -3398,3 +3398,26 @@ Stage Summary:
 - ★ Keystore secrets working: signing configs read KEYSTORE_PASSWORD env var (set from secret in CI), keystores decoded from base64 secrets. Password fallback remains for local builds.
 - All 3 workflows active: Build (CI), Release, Deploy Pages.
 - The release.yml "failures" with 0 jobs on branch pushes are expected (GitHub records that the push didn't match the tag trigger) — NOT real failures.
+
+---
+Task ID: redesign-v2
+Agent: Main Agent (Z.ai Code)
+Task: UI improvements (floating nav, vector logo, minimal hero, minimized cards, richer background) + fix in-page APK downloads
+
+Work Log:
+- Diagnosed download failure: cross-origin <a download> (pointing at github.com) is ignored by browsers, and the GitHub release CDN (release-assets.githubusercontent.com) sends NO access-control-allow-origin header — so neither the download attribute nor fetch() works cross-origin. Confirmed via curl: final 302 → CDN returns content-disposition:attachment but no CORS.
+- Fix: serve APKs SAME-ORIGIN from GitHub Pages. Updated src/lib/site-config.ts apkUrl() → ${BASE_PATH}/downloads/<file>. Updated deploy-pages.yml to fetch the latest release's APK assets (via GitHub API + curl) into out/downloads/ at deploy time. Updated release.yml to trigger a Pages redeploy (gh workflow run) after publishing, so new APKs appear on the site immediately.
+- UI: created src/components/logo.tsx (vector SVG brand mark — rounded square + play triangle, lime gradient) + public/logo-mark.svg (same, used as favicon). Replaced the wrong raster /icon.png in nav + footer.
+- UI: floating nav bar — removed sticky positioning; now position:relative with 24px top padding, rounded-2xl (16px) glass bar with depth shadow (0 8px 32px rgba(0,0,0,0.45)) + backdrop-blur. Scrolls with the page.
+- UI: minimal hero — removed eyebrow ping dot + subtitle paragraph. Single h1 "Aniyomi Extensions" + 3 stat pills forced into one row (flex-nowrap, whitespace-nowrap).
+- UI: minimized extension cards — removed view-source link, removed icon glow (filter:none), removed feature chips, line-clamp-2 tagline for consistent card height. Kept icon/name/site/status/version/tagline/download buttons.
+- UI: removed the install-guide section at the bottom.
+- UI: richer background — body now has 4 vibrant accent radials (lime/sky/coral) + a vignette for depth; page.tsx has 4 animated aurora blobs (aurora-blob/2/3 keyframes in globals.css) drifting on 18-22s loops + a top spotlight. Replaced the old subtle orb-float.
+- Verified locally (lint pass, build pass) and on the live Pages site via agent-browser: nav non-sticky + rounded + shadowed; SVG logo; single h1; 3 stats one row; no install guide; no view source; no icon glow; 4 aurora blobs; 3 cards; footer.
+- Verified downloads: pushed to GitHub → deploy-pages #2 ran, "Fetch latest release APKs into Pages" step succeeded → all 3 APKs now serve same-origin (HTTP 200, application/vnd.android.package-archive, correct sizes). Click test: clicking a download button does NOT navigate (URL stays on the download page) — in-page download confirmed.
+
+Stage Summary:
+- ★ Downloads now work directly from the webpage (same-origin, no navigation, no external page).
+- ★ All 8 UI improvements applied and verified on the live site (https://testplay-byte.github.io/EXTENSIONS/).
+- ★ deploy-pages auto-fetches latest release APKs; release auto-redeploys Pages. Pipeline stays in sync.
+- Dev note: in local dev (port 3000) downloads 404 because no APKs are in public/downloads/ — expected (APKs only exist on the deployed Pages site / in releases).

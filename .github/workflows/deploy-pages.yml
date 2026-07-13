@@ -1,0 +1,81 @@
+# Deploy the download webpage to GitHub Pages.
+# Builds the Next.js static export (./out) and publishes it as a Pages artifact.
+# The site is served at https://testplay-byte.github.io/EXTENSIONS/
+#
+# Triggers:
+#   - On push to main (when src/, public/, next.config.ts, or this workflow change)
+#   - Manually via the Actions tab
+#
+# Requires: repo Settings → Pages → Source = "GitHub Actions"
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'next.config.ts'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tailwind.config.ts'
+      - 'postcss.config.mjs'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write   # required to deploy to Pages
+
+# Allow one concurrent deployment, cancel in-progress ones.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build static site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build static export
+        run: bun run build
+        env:
+          # Ensure the static export uses the production basePath
+          NEXT_TELEMETRY_DISABLED: '1'
+
+      - name: Verify build output
+        run: |
+          test -f out/index.html || { echo "out/index.html missing — build failed"; exit 1; }
+          echo "=== Build output ==="
+          ls -la out/ | head -20
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

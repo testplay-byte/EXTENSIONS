@@ -1,0 +1,65 @@
+# CI build — builds debug APKs for all extensions on every push/PR to main.
+# This is a sanity check: if any extension stops compiling, this catches it.
+# Release (signed) builds are handled by release.yml (triggered by tags).
+name: Build (CI)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build debug APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        run: |
+          # ubuntu-latest has Android SDK pre-installed at ANDROID_HOME.
+          # Accept licenses non-interactively + ensure the needed packages.
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x EXTENSIONS/*/DEV/gradlew
+
+      # Debug builds need no keystore. Each extension is an independent Gradle project.
+      - name: Build AniKoto (debug)
+        working-directory: EXTENSIONS/anikoto/DEV
+        run: ./gradlew :src:en:anikoto:assembleDebug --no-daemon --stacktrace
+
+      - name: Build AnimePahe (debug)
+        working-directory: EXTENSIONS/animepahe/DEV
+        run: ./gradlew :src:en:animepahe:assembleDebug --no-daemon --stacktrace
+
+      - name: Build MKissa (debug)
+        working-directory: EXTENSIONS/mkissa/DEV
+        run: ./gradlew :src:en:mkissa:assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APKs
+        run: |
+          mkdir -p artifacts
+          find EXTENSIONS -path "*/build/outputs/apk/**/*.apk" -exec cp {} artifacts/ \;
+          ls -la artifacts/
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apks
+          path: artifacts/*.apk
+          retention-days: 14
+          if-no-files-found: error

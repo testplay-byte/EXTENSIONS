@@ -1,0 +1,113 @@
+# Release build — triggered by a version tag (e.g. v16.9).
+# Builds SIGNED release APKs (anikoto + animepahe) and a debug APK (mkissa, no keystore yet),
+# then publishes a GitHub Release with the APKs attached as downloadable assets.
+#
+# The download webpage links to these assets via:
+#   https://github.com/testplay-byte/EXTENSIONS/releases/latest/download/<apk-filename>
+#
+# Required secrets (configure in repo Settings → Secrets and variables → Actions):
+#   ANIKOTO_KEYSTORE_BASE64    — base64-encoded anikoto-release.jks
+#   ANIMEPAHE_KEYSTORE_BASE64  — base64-encoded animepahe-release.jks
+#   KEYSTORE_PASSWORD          — keystore password (storePassword = keyPassword)
+#
+# To create a release:
+#   git tag v16.9
+#   git push origin v16.9
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v16.9)'
+        required: true
+
+permissions:
+  contents: write   # needed by softprops/action-gh-release to create the release
+
+jobs:
+  release:
+    name: Build & publish signed APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        run: |
+          # ubuntu-latest has Android SDK pre-installed at ANDROID_HOME.
+          # Accept licenses non-interactively + ensure the needed packages.
+          yes | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null
+          ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x EXTENSIONS/*/DEV/gradlew
+
+      # Decode keystores from base64 secrets → place at rootProject dir (where build.gradle.kts expects them)
+      - name: Restore AniKoto keystore
+        if: ${{ secrets.ANIKOTO_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANIKOTO_KEYSTORE_BASE64 }}" | base64 -d > EXTENSIONS/anikoto/DEV/anikoto-release.jks
+          test -s EXTENSIONS/anikoto/DEV/anikoto-release.jks && echo "anikoto keystore restored ($(wc -c < EXTENSIONS/anikoto/DEV/anikoto-release.jks) bytes)"
+
+      - name: Restore AnimePahe keystore
+        if: ${{ secrets.ANIMEPAHE_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "${{ secrets.ANIMEPAHE_KEYSTORE_BASE64 }}" | base64 -d > EXTENSIONS/animepahe/DEV/animepahe-release.jks
+          test -s EXTENSIONS/animepahe/DEV/animepahe-release.jks && echo "animepahe keystore restored ($(wc -c < EXTENSIONS/animepahe/DEV/animepahe-release.jks) bytes)"
+
+      # ── Signed release builds (have keystores) ──
+      - name: Build AniKoto (release, signed)
+        working-directory: EXTENSIONS/anikoto/DEV
+        run: ./gradlew :src:en:anikoto:assembleRelease --no-daemon --stacktrace
+
+      - name: Build AnimePahe (release, signed)
+        working-directory: EXTENSIONS/animepahe/DEV
+        run: ./gradlew :src:en:animepahe:assembleRelease --no-daemon --stacktrace
+
+      # ── MKissa: debug only (no release keystore yet) ──
+      - name: Build MKissa (debug)
+        working-directory: EXTENSIONS/mkissa/DEV
+        run: ./gradlew :src:en:mkissa:assembleDebug --no-daemon --stacktrace
+
+      - name: Collect & list APKs
+        id: collect
+        run: |
+          mkdir -p release-assets
+          find EXTENSIONS -path "*/build/outputs/apk/**/*.apk" -exec cp {} release-assets/ \;
+          echo "=== Release assets ==="
+          ls -la release-assets/
+          echo "count=$(ls release-assets/*.apk | wc -l)" >> $GITHUB_OUTPUT
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create GitHub Release with APKs
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: ${{ steps.tag.outputs.name }}
+          generate_release_notes: true
+          files: release-assets/*.apk
+          fail_on_unmatched_files: true

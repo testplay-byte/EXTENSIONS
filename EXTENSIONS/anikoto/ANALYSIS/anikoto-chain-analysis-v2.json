@@ -1,0 +1,680 @@
+{
+  "watch_url": "https://anikototv.to/watch/wistoria-wand-and-sword-season-2-dua04/ep-5",
+  "slug": "wistoria-wand-and-sword-season-2-dua04",
+  "ep_num": "5",
+  "anime_id": "8737",
+  "episode_title": "Episode 5",
+  "results": [
+    {
+      "server": "VidPlay-1",
+      "audio_type": "sub",
+      "disp_audio": "SUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrNHVJWFRVWWRWdU5JYnhuaU95bVRYSVYw",
+      "iframe_url": "https://vidtube.site/stream/REFRZ3lMTDdlYU9OVEtuakk1SjFIQkg2TWVXWVVYRy9MakdLeThkZEZMRE9ZV3lTQVpTZ2RGaGlSb00rYzVrTg/sub",
+      "player_host": "vidtube.site",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "138029",
+      "iframe_extras": {
+        "data-realid": "wistoria-wand-and-sword-season-2/ep-5",
+        "data-mediaid": "8904",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://mt.nekostream.site/1a1e84e365ac3f37c1b338fff210085a/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://mt.nekostream.site/1a1e84e365ac3f37c1b338fff210085a/subtitles/English.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://mt.nekostream.site/1a1e84e365ac3f37c1b338fff210085a/316588360.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://mt.nekostream.site/1a1e84e365ac3f37c1b338fff210085a/316588720.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://mt.nekostream.site/1a1e84e365ac3f37c1b338fff210085a/3165881080.m3u8"
+        }
+      ],
+      "seg_info": {
+        "total": 143,
+        "hosts": {
+          "mt.nekostream.site": 12,
+          "p1.ipstatp.com": 131
+        },
+        "png": {
+          "size": 413476,
+          "is_png": true,
+          "iend": 62,
+          "cut": 70,
+          "ts_sync": true,
+          "ct": "image/png",
+          "final_host": "p1.ipstatp.com"
+        }
+      },
+      "status": "ok"
+    },
+    {
+      "server": "HD-1",
+      "audio_type": "sub",
+      "disp_audio": "SUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK2Z4",
+      "iframe_url": "https://megaplay.buzz/stream/s-5/873700500/sub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176012",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://1oe.lostproject.club/anime/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/subtitles/b0565b746c82fcd104b92d519714e471_132998_sub_eng-0.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f3.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f1.m3u8"
+        }
+      ],
+      "seg_info": {
+        "total": 143,
+        "hosts": {
+          "9hjkrt.nekostream.site": 12,
+          "p16-ad-sg.ibyteimg.com": 131
+        },
+        "png": {
+          "size": 413476,
+          "is_png": true,
+          "iend": 62,
+          "cut": 70,
+          "ts_sync": true,
+          "ct": "image/png",
+          "final_host": "p16-ad-sg.ibyteimg.com"
+        }
+      },
+      "status": "ok"
+    },
+    {
+      "server": "Vidstream-2",
+      "audio_type": "sub",
+      "disp_audio": "SUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK1JN",
+      "iframe_url": "https://megaplay.buzz/stream/s-2/873700500/sub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176012",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://1oe.lostproject.club/anime/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/subtitles/b0565b746c82fcd104b92d519714e471_132998_sub_eng-0.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f3.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/31fcc9a246c274d4af00a9f7997c3799/index-f1.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "VidCloud-1",
+      "audio_type": "sub",
+      "disp_audio": "SUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZreUwzRFBHR2Fkdmc2YjVmc0xTWDBmdW9x",
+      "iframe_url": "https://vidwish.live/stream/s-2/873700500/sub",
+      "player_host": "vidwish.live",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "174447",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8480",
+        "data-fileversion": "0"
+      },
+      "status": "getsources_failed",
+      "error": "JSON parse: Expecting value: line 2 column 1 (char 1); body[:200]=b'\\n<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n    <meta charset=\"UTF-8\">\\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\\n    <title>Error - Vidcloud</title>\\n    <link rel=\"styles'"
+    },
+    {
+      "server": "VidPlay-1",
+      "audio_type": "hsub",
+      "disp_audio": "HSUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrNHVJWFRVWWRWdU5JYnhuaU95bVRYSVYw",
+      "iframe_url": "https://vidtube.site/stream/REFRZ3lMTDdlYU9OVEtuakk1SjFIQkg2TWVXWVVYRy9MakdLeThkZEZMRE9ZV3lTQVpTZ2RGaGlSb00rYzVrTg/hsub",
+      "player_host": "vidtube.site",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "138029",
+      "iframe_extras": {
+        "data-realid": "wistoria-wand-and-sword-season-2/ep-5",
+        "data-mediaid": "8904",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://mt.nekostream.site/c2b9eb434a239894613fab6c30aa32cb/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://mt.nekostream.site/c2b9eb434a239894613fab6c30aa32cb/subtitles/English.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://mt.nekostream.site/c2b9eb434a239894613fab6c30aa32cb/316590360.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://mt.nekostream.site/c2b9eb434a239894613fab6c30aa32cb/316590720.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://mt.nekostream.site/c2b9eb434a239894613fab6c30aa32cb/3165901080.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "HD-1",
+      "audio_type": "hsub",
+      "disp_audio": "HSUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK2Z4",
+      "iframe_url": "https://megaplay.buzz/stream/s-5/873700500/hsub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176261",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/master.m3u8",
+      "tracks": [],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 1624859,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f1.m3u8"
+        },
+        {
+          "bandwidth": 732631,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 300000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f3.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "Vidstream-2",
+      "audio_type": "hsub",
+      "disp_audio": "HSUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK1JN",
+      "iframe_url": "https://megaplay.buzz/stream/s-2/873700500/hsub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176261",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/master.m3u8",
+      "tracks": [],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 1624859,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f1.m3u8"
+        },
+        {
+          "bandwidth": 732631,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 300000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e452e4988fbf8f924d4480a36860aa06/index-f3.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "VidPlay-1",
+      "audio_type": "dub",
+      "disp_audio": "DUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrNHVJWFRVWWRWdU5JYnhuaU95bVRYSVYw",
+      "iframe_url": "https://vidtube.site/stream/REFRZ3lMTDdlYU9OVEtuakk1SjFIQkg2TWVXWVVYRy9MakdLeThkZEZMRE9ZV3lTQVpTZ2RGaGlSb00rYzVrTg/dub",
+      "player_host": "vidtube.site",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "138029",
+      "iframe_extras": {
+        "data-realid": "wistoria-wand-and-sword-season-2/ep-5",
+        "data-mediaid": "8904",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://mt.nekostream.site/ec7821b9ef81d2122c75136c1683ca94/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://mt.nekostream.site/ec7821b9ef81d2122c75136c1683ca94/subtitles/English.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://mt.nekostream.site/ec7821b9ef81d2122c75136c1683ca94/317514360.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://mt.nekostream.site/ec7821b9ef81d2122c75136c1683ca94/317514720.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://mt.nekostream.site/ec7821b9ef81d2122c75136c1683ca94/3175141080.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "HD-1",
+      "audio_type": "dub",
+      "disp_audio": "DUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK2Z4",
+      "iframe_url": "https://megaplay.buzz/stream/s-5/873700500/dub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176502",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://1oe.lostproject.club/anime/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/subtitles/f1a134f14c508836ee1cae626d73e90d_132998_dub_eng-0.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f3.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f1.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "Vidstream-2",
+      "audio_type": "dub",
+      "disp_audio": "DUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrOWdjeldjOERLaWNMMXFNbVB3WUJqK1JN",
+      "iframe_url": "https://megaplay.buzz/stream/s-2/873700500/dub",
+      "player_host": "megaplay.buzz",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "176502",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8726",
+        "data-fileversion": "0"
+      },
+      "m3u8_url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/master.m3u8",
+      "tracks": [
+        {
+          "file": "https://1oe.lostproject.club/anime/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/subtitles/f1a134f14c508836ee1cae626d73e90d_132998_dub_eng-0.vtt",
+          "label": "English",
+          "kind": "captions"
+        }
+      ],
+      "server_field": 5,
+      "extraction_flow": "primary_getSourcesNew",
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f3.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f2.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://9hjkrt.nekostream.site/4739d8dbd05dddb73604f6240b83ea68/e833e7bf9ac1482aee3ba9ec324df15e/index-f1.m3u8"
+        }
+      ],
+      "status": "ok"
+    },
+    {
+      "server": "VidCloud-1",
+      "audio_type": "dub",
+      "disp_audio": "DUB",
+      "source": "primary",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZreUwzRFBHR2Fkdmc2YjVmc0xTWDBmdW9x",
+      "iframe_url": "https://vidwish.live/stream/s-2/873700500/dub",
+      "player_host": "vidwish.live",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "data_id": "174706",
+      "iframe_extras": {
+        "data-realid": "873700500",
+        "data-mediaid": "8480",
+        "data-fileversion": "0"
+      },
+      "status": "getsources_failed",
+      "error": "JSON parse: Expecting value: line 2 column 1 (char 1); body[:200]=b'\\n<!DOCTYPE html>\\n<html lang=\"en\">\\n<head>\\n    <meta charset=\"UTF-8\">\\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\\n    <title>Error - Vidcloud</title>\\n    <link rel=\"styles'"
+    },
+    {
+      "server": "Kiwi-Stream",
+      "audio_type": "sub",
+      "disp_audio": "H-SUB",
+      "source": "mapper",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrNlUzWGVVWmxvYmVtOERNWVNHanlHbDhO",
+      "iframe_url": "https://mewcdn.online/player/plyr.php#aHR0cHM6Ly92aWJlcGxheWVyLnNpdGUvcHVibGljL3N0cmVhbS9lOTA0MjRmMjllYzgxZGRjL21hc3Rlci5tM3U4#",
+      "player_host": "mewcdn.online",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "m3u8_url": "https://vibeplayer.site/public/stream/e90424f29ec81ddc/master.m3u8",
+      "extraction_flow": "kiwi_base64_fragment",
+      "tracks": [],
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://vibeplayer.site/public/stream/e90424f29ec81ddc/316590360.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://vibeplayer.site/public/stream/e90424f29ec81ddc/316590720.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://vibeplayer.site/public/stream/e90424f29ec81ddc/3165901080.m3u8"
+        }
+      ],
+      "seg_info": {
+        "total": 142,
+        "hosts": {
+          "p16-ad-sg.ibyteimg.com": 142
+        },
+        "png": null
+      },
+      "status": "ok"
+    },
+    {
+      "server": "Kiwi-Stream",
+      "audio_type": "dub",
+      "disp_audio": "A-DUB",
+      "source": "mapper",
+      "link_id": "MTF1dkFtaW9BRTZPbzJJRElFZUZrNlUzWGVVWmxvYmVtOERNWVNHanlHbDhO",
+      "iframe_url": "https://mewcdn.online/player/plyr.php#aHR0cHM6Ly92aWJlcGxheWVyLnNpdGUvcHVibGljL3N0cmVhbS83Mjk1YjI0NmEzMzk0ZDJmL21hc3Rlci5tM3U4#",
+      "player_host": "mewcdn.online",
+      "skip_data": {
+        "intro": [
+          0,
+          0
+        ],
+        "outro": [
+          0,
+          0
+        ]
+      },
+      "m3u8_url": "https://vibeplayer.site/public/stream/7295b246a3394d2f/master.m3u8",
+      "extraction_flow": "kiwi_base64_fragment",
+      "tracks": [],
+      "variants": [
+        {
+          "bandwidth": 800000,
+          "resolution": "640x360",
+          "name": "360p",
+          "url": "https://vibeplayer.site/public/stream/7295b246a3394d2f/317514360.m3u8"
+        },
+        {
+          "bandwidth": 2800000,
+          "resolution": "1280x720",
+          "name": "720p",
+          "url": "https://vibeplayer.site/public/stream/7295b246a3394d2f/317514720.m3u8"
+        },
+        {
+          "bandwidth": 5500000,
+          "resolution": "1920x1080",
+          "name": "1080p",
+          "url": "https://vibeplayer.site/public/stream/7295b246a3394d2f/3175141080.m3u8"
+        }
+      ],
+      "status": "ok"
+    }
+  ]
+}

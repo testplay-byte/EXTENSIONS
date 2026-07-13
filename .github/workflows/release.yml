@@ -60,13 +60,11 @@ jobs:
 
       # Decode keystores from base64 secrets → place at rootProject dir (where build.gradle.kts expects them)
       - name: Restore AniKoto keystore
-        if: ${{ secrets.ANIKOTO_KEYSTORE_BASE64 != '' }}
         run: |
           echo "${{ secrets.ANIKOTO_KEYSTORE_BASE64 }}" | base64 -d > EXTENSIONS/anikoto/DEV/anikoto-release.jks
           test -s EXTENSIONS/anikoto/DEV/anikoto-release.jks && echo "anikoto keystore restored ($(wc -c < EXTENSIONS/anikoto/DEV/anikoto-release.jks) bytes)"
 
       - name: Restore AnimePahe keystore
-        if: ${{ secrets.ANIMEPAHE_KEYSTORE_BASE64 != '' }}
         run: |
           echo "${{ secrets.ANIMEPAHE_KEYSTORE_BASE64 }}" | base64 -d > EXTENSIONS/animepahe/DEV/animepahe-release.jks
           test -s EXTENSIONS/animepahe/DEV/animepahe-release.jks && echo "animepahe keystore restored ($(wc -c < EXTENSIONS/animepahe/DEV/animepahe-release.jks) bytes)"

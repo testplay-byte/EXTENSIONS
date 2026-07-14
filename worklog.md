@@ -3630,3 +3630,45 @@ Stage Summary:
 - ⚠️ Cloudflare: reanime.to + flixcloud.cc both Turnstile-protected; cf_clearance short-lived. Bypass = WebView + native MotionEvent (MKissa pattern).
 - ⚠️ Open for Step 8: exact HLS qualities, server variety across titles, m3u8 token derivation, subtitle delivery.
 - NO code/extension built yet — awaiting user verification per the agreed workflow.
+
+---
+Task ID: reanime-build-final
+Agent: Main Agent (Z.ai Code)
+Task: Build the Re:ANIME 180 extension (v16.1, build 1) — Step 8 (video-stream analysis) + Step 9 (build extension, update webpage, make live). Followed the project's HOW_TO_BUILD_EXTENSION workflow.
+
+Work Log:
+- Step 8 (video-stream analysis): Confirmed the stream architecture from Step 1 analysis. The flixcloud.cc player uses /api/m3u8/<single-use-24hex-token> → HLS master playlist. Token is single-use (re-fetch returns 410 "invalid_or_used_token"). The player JS decrypts the token from obfuscated_crypto_data + obfuscation_seed (AniKoto-RC4-style architecture). Capture strategy: shouldInterceptRequest in WebView intercepts the m3u8 request, makes it via OkHttp (consuming the token), reads the master playlist body, returns it as WebResourceResponse to the player, and parses it for quality variants. This is the proven interceptVideoUrl pattern from MKissa v16.18.
+- Step 9a: Copied Gradle boilerplate from mkissa → reanime (gradle wrapper, libs.versions.toml, kei.versions.toml, common/AndroidManifest.xml, stubs module, gradle.properties, icons). All identical across extensions.
+- Step 9b: Wrote 8 Kotlin source files:
+  - Reanime.kt — main source (ConfigurableAnimeSource, AnimeHttpSource). Popular/search via GET /api/v1/search (public, empty q=popular). Filters: year/season/format (genres/sort not supported by API). Details via Jsoup parse of SSR /anime/<id> HTML. Episodes via GET /api/v1/anime/<id>/episodes?limit=2000. Video via getHosterList → /api/flix/<anilist_id>/<ep> → flixcloud.cc HLS. AniList ID extracted from cover_image URL (bx<id> pattern).
+  - ReanimeDto.kt — kotlinx.serialization DTOs (SearchResponse, SearchResult, Title, CoverImage, EpisodesResponse, Episode, FlixResponse, FlixServer).
+  - ReanimeFilters.kt — year/season/format AnimeFilter.Select filters.
+  - ReanimeSettings.kt — preferred audio (sub/dub), quality, HD-1/HD-2 server toggles, thumbnail loading, WebView timeout.
+  - ReanimeLog.kt — logcat-only logger (tag "Reanime").
+  - extractor/ReanimeExtractor.kt — fetches /api/flix/ server list, filters by audio type + enabled servers, loads flixcloud embed in WebView, intercepts m3u8, parses master playlist for quality variants.
+  - extractor/WebViewFetcher.kt — WebView with shouldInterceptRequest m3u8 capture. Makes the m3u8 request via OkHttp (with WebView cookies + Referer), reads the master playlist body, returns it as WebResourceResponse to the player. Also captures direct .m3u8/.mp4 URLs.
+  - extractor/PlaylistUtils.kt — HLS master playlist parser (extracts variant URLs + quality labels from RESOLUTION/BANDWIDTH).
+- Step 9c: Wrote build.gradle.kts (versionCode=1, versionName="16.1", extClass="...en.reanime.Reanime", applicationIdSuffix="en.reanime180"), proguard-rules.pro (keep ...reanime.** + $$serializer), settings.gradle.kts (rootProject.name="Reanime-Anime", include :src:en:reanime).
+- Step 9d: Generated AI icon (play button, coral/lime gradient on dark navy), resized to all 5 mipmap densities + 256x256 for webpage. Updated site-config.ts with reanime extension entry. Updated CI workflows (build.yml + release.yml) with Build Re:ANIME (debug) steps. Updated README.md + MEMORY/EXTENSIONS.md registry.
+- Step 9e: Committed to reanime branch, pushed. Rebased on origin/main (which had advanced with anidb + mkissa-v19 changes from other work). Resolved conflicts in worklog.md, build.yml, release.yml, MEMORY/EXTENSIONS.md, src/lib/site-config.ts, README.md — kept both sides' additions (AniDB + Re:ANIME). Pushed merged main.
+- Step 9f: CI build attempts:
+  - Build #23: FAILED — ReanimeDto.kt: 'continue' is a Kotlin keyword (can't use as parameter name); ReanimeFilters.kt: SelectFilter was private but subclasses are public.
+  - Build #24: FAILED — Reanime.kt:42 missing abstract member 'supportsLatest: Boolean'.
+  - Build #25: ✅ SUCCESS — all 5 extensions compiled (anikoto, animepahe, mkissa, anidb, reanime).
+- Step 9g: Tagged v1.4.0, pushed. Release #11: ✅ ALL steps passed — signed AniKoto + AnimePahe, debug MKissa + AniDB + Re:ANIME. GitHub Release v1.4.0 published with 5 APKs. Pages redeployed.
+- Verified live: https://testplay-byte.github.io/EXTENSIONS/ shows 5 extension cards (AniKoto, AnimePahe, MKissa, AniDB, Re:ANIME). Re:ANIME download link serves 134,702 bytes (HTTP 200). Screenshot saved.
+
+Stage Summary:
+- ★ Re:ANIME 180 extension (v16.1, build 1) BUILT, COMPILED, and LIVE.
+- ★ APK: aniyomi-en.reanime180-v16.1-debug.apk (134KB debug) — available on the live download page.
+- ★ Source: 8 Kotlin files (Reanime.kt + Dto + Filters + Settings + Log + 3 extractor files).
+- ★ Video pipeline: /api/flix/<anilist_id>/<ep> → HD-1/HD-2 × sub/dub → flixcloud.cc embed → WebView shouldInterceptRequest captures /api/m3u8/<token> → OkHttp fetch → parse master playlist → Video objects with quality variants.
+- ★ Audio: sub + dub (NO hsub — "sub" is hardsub default, softsub is a player toggle).
+- ★ Cloudflare: reanime.to + flixcloud.cc both Turnstile-protected. Uses inherited client (CloudflareInterceptor) + WebView for flixcloud.
+- ★ CI: Build (CI) #25 passed (all 5 extensions compile). Release #11 published v1.4.0.
+- ★ Live site: 5 extension cards, reanime download link working (HTTP 200, 134KB).
+- HONEST STATUS — needs on-device testing (cannot verify video playback in sandbox):
+  - Catalog/search/details/episodes: should work (API is public + verified during Step 1 analysis)
+  - Video playback: should work (interceptVideoUrl is the proven MKissa v16.18 pattern), but the m3u8 token is single-use — the shouldInterceptRequest approach reads the response body before the player consumes it. Needs on-device test to verify the m3u8 variant URLs are playable by Aniyomi's player.
+  - Cloudflare bypass: uses inherited client (CloudflareInterceptor) for API + WebView for flixcloud — proven pattern, should work on-device.
+- 3 compilation issues found + fixed during CI: (1) 'continue' keyword, (2) SelectFilter visibility, (3) missing supportsLatest override.

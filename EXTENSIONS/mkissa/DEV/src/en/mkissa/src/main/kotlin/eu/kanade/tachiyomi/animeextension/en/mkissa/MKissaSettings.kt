@@ -21,11 +21,10 @@ import androidx.preference.SwitchPreferenceCompat
 class MKissaSettings(private val prefs: SharedPreferences) {
 
     init {
-        // ★ Settings migration: if the old 14-server set is stored, replace with the new 6-server set.
-        // This happens when updating from v16.10-v16.15 (which had 14 servers) to v16.16+ (6 servers).
+        // ★ Settings migration: if the stored server set doesn't match the current SERVER_NAMES,
+        // reset to default. This handles upgrades from v16.10-v16.15 (14 servers) → v16.16+ (6) → v16.20 (7 with Ak).
         val currentServers = prefs.getStringSet(PREF_SERVERS_KEY, null)
-        if (currentServers != null && currentServers.size > SERVER_NAMES.size) {
-            // Old set with more servers than the current 6 — reset to default
+        if (currentServers != null && currentServers.size != SERVER_NAMES.size) {
             prefs.edit().putStringSet(PREF_SERVERS_KEY, PREF_SERVERS_DEFAULT).apply()
         }
     }
@@ -109,8 +108,8 @@ class MKissaSettings(private val prefs: SharedPreferences) {
             ListPreference(context).apply {
                 key = PREF_PREFERRED_SERVER_KEY
                 title = "Preferred server"
-                entries = arrayOf("Site Default", "Fm-Hls", "Uni", "Mp4", "Ok", "Vn-Hls", "Luf-Mp4")
-                entryValues = arrayOf("", "fm-hls", "uni", "mp4", "ok", "vn-hls", "luf-mp4")
+                entries = arrayOf("Site Default", "Fm-Hls", "Uni", "Mp4", "Ok", "Vn-Hls", "Luf-Mp4", "Ak")
+                entryValues = arrayOf("", "fm-hls", "uni", "mp4", "ok", "vn-hls", "luf-mp4", "ak")
                 setDefaultValue(PREF_PREFERRED_SERVER_DEFAULT)
                 summary = "Currently: %s"
             }.also(::addPreference)
@@ -179,9 +178,9 @@ class MKissaSettings(private val prefs: SharedPreferences) {
         internal const val PREF_LOAD_DESCRIPTIONS_KEY = "pref_load_descriptions"
         internal const val PREF_LOAD_DESCRIPTIONS_DEFAULT = true
 
-        // Server toggles — only the 6 REAL servers that the API returns
+        // Server toggles — the REAL servers that the API returns
         internal const val PREF_SERVERS_KEY = "pref_servers"
-        internal val SERVER_NAMES = arrayOf("Fm-Hls", "Uni", "Mp4", "Ok", "Vn-Hls", "Luf-Mp4")
+        internal val SERVER_NAMES = arrayOf("Fm-Hls", "Uni", "Mp4", "Ok", "Vn-Hls", "Luf-Mp4", "Ak")
         internal val PREF_SERVERS_DEFAULT = SERVER_NAMES.map { it.lowercase() }.toSet() // all enabled by default
         internal const val PREF_PREFERRED_SERVER_KEY = "pref_preferred_server"
         internal const val PREF_PREFERRED_SERVER_DEFAULT = "" // "" = Site Default (priority-based)

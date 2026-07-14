@@ -683,11 +683,13 @@ class WebViewFetcher(
     /** Check if a URL looks like a playable video stream. */
     private fun looksLikeVideoUrl(url: String): Boolean {
         val lower = url.lowercase()
+        // ★ Don't exclude mp4upload.com — the actual video URL is
+        // a4.mp4upload.com:183/d/.../video.mp4 which we NEED to capture.
+        // Only exclude the embed page (.html), which won't match .mp4 anyway.
         return when {
             lower.contains(".m3u8") -> true
-            lower.contains(".mp4") && !lower.contains("mp4upload.com") -> true
-            lower.contains("/manifest.m3u8") -> true
-            lower.contains("/playlist.m3u8") -> true
+            lower.contains(".mp4") -> true
+            lower.contains(".mpd") && !lower.contains("manifest.mpd") -> true
             else -> false
         }
     }

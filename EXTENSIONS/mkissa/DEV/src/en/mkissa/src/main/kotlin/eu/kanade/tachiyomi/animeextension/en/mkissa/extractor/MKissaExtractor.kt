@@ -252,7 +252,7 @@ class MKissaExtractor(
             // 1. Preferred server first (if set)
             // 2. Then by server priority (Ok > Mp4 > Vn-Hls > Fm-Hls > Uni > Luf-Mp4)
             // 3. Then by quality (1080p > 720p > 480p > 360p > unknown)
-            val serverPriority = listOf("ok", "mp4", "vn-hls", "fm-hls", "uni", "luf-mp4")
+            val serverPriority = listOf("ok", "mp4", "vn-hls", "fm-hls", "uni", "luf-mp4", "ak")
             val qualityOrder = listOf("1080", "720", "480", "360", "240", "144")
 
             fun serverRank(title: String): Int {
@@ -751,39 +751,74 @@ class MKissaExtractor(
         }
     }
 
-    /** Mp4Upload extractor (Mp4) — JsUnpacker approach */
+    /** Mp4Upload extractor (Mp4) — WebView interception approach.
+     *
+     * ★ v20: mp4upload.com now redirects OkHttp to login (requires cookies).
+     * The WebView has a cookie jar + full browser stack, so it can load the
+     * embed page. The mp4upload player JS fetches the video URL
+     * (e.g. https://a4.mp4upload.com:183/d/.../video.mp4), which we intercept
+     * via shouldInterceptRequest + JS monkey-patch.
+     *
+     * Old approach (JsUnpacker via OkHttp) is kept as a fast-path fallback —
+     * if it works (e.g. mp4upload removes the login requirement), we skip
+     * the slower WebView approach.
+     */
     private suspend fun extractMp4Upload(url: String, name: String): List<Video> {
-        return try {
+        // Fast path: try OkHttp + JsUnpacker first (works if mp4upload doesn't require login)
+        try {
             val refererHeaders = headers.newBuilder()
                 .set("Referer", "https://mp4upload.com/")
                 .build()
-            val response = client.newCall(GET(url, refererHeaders)).awaitSuccess()
+            val response = client.newCall(GET(url, refererHeaders)).execute()
             val body = response.use { it.body?.string().orEmpty() }
 
-            // Look for packed JS or player.src
-            val scriptData = if (body.contains("eval(function(p,a,c,k,e,d)")) {
+            // Check if we got the actual embed page (not a login redirect)
+            if (body.contains("eval(function(p,a,c,k,e,d)")) {
+                MKissaLog.d("extractMp4Upload: OkHttp got packed JS — using JsUnpacker")
                 val packedScript = body.substringAfterLast("eval(function(")
-                eu.kanade.tachiyomi.animeextension.en.mkissa.extractor.jsunpacker.JsUnpacker
+                val scriptData = eu.kanade.tachiyomi.animeextension.en.mkissa.extractor.jsunpacker.JsUnpacker
                     .unpackAndCombine("eval(function($packedScript")
-            } else {
-                // Try direct player.src
-                body
-            } ?: return emptyList()
-
-            val videoUrl = scriptData.substringAfter(".src(").substringBefore(")")
-                .substringAfter("src:").substringAfter('"').substringBefore('"')
-            if (videoUrl.isBlank() || !videoUrl.startsWith("http")) return emptyList()
-
-            val resolution = Regex("""\WHEIGHT=(\d+)""").find(scriptData)?.groupValues?.let { "${it[1]}p" } ?: "Unknown"
-            listOf(
-                Video(
-                    videoUrl = videoUrl,
-                    videoTitle = "$name - $resolution",
-                    headers = refererHeaders,
-                ),
-            )
+                if (scriptData != null) {
+                    val videoUrl = scriptData.substringAfter(".src(").substringBefore(")")
+                        .substringAfter("src:").substringAfter('"').substringBefore('"')
+                    if (videoUrl.startsWith("http")) {
+                        val resolution = Regex("""\WHEIGHT=(\d+)""").find(scriptData)?.groupValues?.let { "${it[1]}p" } ?: "Unknown"
+                        MKissaLog.i("extractMp4Upload: JsUnpacker found video: ${MKissaLog.trunc(videoUrl, 80)}")
+                        return listOf(Video(videoUrl = videoUrl, videoTitle = "$name - $resolution", headers = refererHeaders))
+                    }
+                }
+            }
+            MKissaLog.w("extractMp4Upload: OkHttp got login redirect (body has no packed JS) — falling back to WebView")
         } catch (e: Exception) {
-            MKissaLog.e("extractMp4Upload: failed for $name — ${e.message}", e)
+            MKissaLog.w("extractMp4Upload: OkHttp failed — ${e.message} — falling back to WebView")
+        }
+
+        // Fallback: use WebView interception (handles login requirement + cookies)
+        if (webViewFetcher == null) {
+            MKissaLog.w("extractMp4Upload: WebViewFetcher not available. Skipping $name.")
+            return emptyList()
+        }
+
+        return try {
+            MKissaLog.i("extractMp4Upload: using interceptVideoUrl (WebView) for $url")
+            val videoSrc = webViewFetcher.interceptVideoUrl(
+                url = url,
+                timeoutMs = 30_000,
+                autoClickPlay = false, // mp4upload auto-loads the player (no play button needed)
+                maxClicks = 1,
+                clickIntervalMs = 2000,
+            )
+
+            if (videoSrc.isBlank() || !videoSrc.startsWith("http")) {
+                MKissaLog.w("extractMp4Upload: no video URL intercepted")
+                return emptyList()
+            }
+
+            MKissaLog.i("extractMp4Upload: intercepted video URL: ${MKissaLog.trunc(videoSrc, 80)}")
+            val mp4Headers = headers.newBuilder().set("Referer", "https://www.mp4upload.com/").build()
+            listOf(Video(videoUrl = videoSrc, videoTitle = "$name - MP4", headers = mp4Headers))
+        } catch (e: Exception) {
+            MKissaLog.e("extractMp4Upload: WebView failed for $name — ${e.message}", e)
             emptyList()
         }
     }
@@ -1019,6 +1054,6 @@ class MKissaExtractor(
         private const val STREAM_HASH = "d405d0edd690624b66baba3068e0edc3ac90f1597d898a1ec8db4e5c43c00fec"
 
         /** All server names (for settings UI). */
-        val SERVER_NAMES = arrayOf("Fm-Hls", "Uni", "Mp4", "Ok", "Luf-Mp4")
+        val SERVER_NAMES = arrayOf("Fm-Hls", "Uni", "Mp4", "Ok", "Vn-Hls", "Luf-Mp4", "Ak")
     }
 }

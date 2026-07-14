@@ -94,6 +94,11 @@ jobs:
         working-directory: EXTENSIONS/reanime/DEV
         run: ./gradlew :src:en:reanime:assembleDebug --no-daemon --stacktrace
 
+      # ── Miruro: debug only (no release keystore yet) ──
+      - name: Build Miruro (debug)
+        working-directory: EXTENSIONS/miruro/DEV
+        run: ./gradlew :src:en:miruro:assembleDebug --no-daemon --stacktrace
+
       - name: Collect & list APKs
         id: collect
         run: |

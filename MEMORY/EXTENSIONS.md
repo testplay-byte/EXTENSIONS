@@ -14,6 +14,7 @@
 | **MKissa 180** | [`EXTENSIONS/mkissa/`](../EXTENSIONS/mkissa/) | `en` | 🚧 In progress (3/6 video servers working) | v16.17 (Build 17, versionCode 17, versionId 1) | mkissa.to | `...en.mkissa.MKissa` |
 | **AniDB 180** | [`EXTENSIONS/anidb/`](../EXTENSIONS/anidb/) | `en` | 🚧 In progress (initial build, debug only) | v16.1 (Build 1, versionCode 1, versionId 1) | anidb.app | `...en.anidb.AniDB` |
 | **Re:ANIME 180** | [`EXTENSIONS/reanime/`](../EXTENSIONS/reanime/) | `en` | 🚧 In progress (initial build) | v16.1 (Build 1, versionCode 1, versionId 1) | reanime.to | `...en.reanime.Reanime` |
+| **Miruro 180** | [`EXTENSIONS/miruro/`](../EXTENSIONS/miruro/) | `en` | 🚧 In progress (pipe API + 11 providers + 4 sub-types, HLS working) | v16.1 (Build 1, versionCode 1, versionId 1) | miruro.tv | `...en.miruro.Miruro` |
 
 ## Status legend
 

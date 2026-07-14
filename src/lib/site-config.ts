@@ -120,6 +120,22 @@ export const EXTENSIONS: ExtensionMeta[] = [
     accent: "lime",
     features: ["Catalog + search", "Year/season/format filters", "flixcloud HLS playback", "Sub + Dub support"],
   },
+  {
+    id: "miruro",
+    name: "Miruro 180",
+    tagline:
+      "Anime streaming extension for miruro.tv — 11 providers (AnimePahe, AniKoto, Zoro, 9Anime…), 4 audio types (Sub/Dub/Soft Sub/Hard Sub), AniList metadata, Cloudflare bypass.",
+    version: "v16.1",
+    build: 1,
+    date: "July 14, 2027",
+    status: "wip",
+    availableBuilds: ["debug"],
+    icon: "/miruro-icon.png",
+    letter: "MR",
+    site: "miruro.tv",
+    accent: "sky",
+    features: ["11 providers", "Sub/Dub/Soft/Hard Sub", "AniList metadata", "Cloudflare bypass"],
+  },
 ];
 
 // Build the download URL for an extension's APK.

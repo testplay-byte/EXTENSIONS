@@ -58,6 +58,10 @@ jobs:
         working-directory: EXTENSIONS/reanime/DEV
         run: ./gradlew :src:en:reanime:assembleDebug --no-daemon --stacktrace
 
+      - name: Build Miruro (debug)
+        working-directory: EXTENSIONS/miruro/DEV
+        run: ./gradlew :src:en:miruro:assembleDebug --no-daemon --stacktrace
+
       - name: Collect APKs
         run: |
           mkdir -p artifacts

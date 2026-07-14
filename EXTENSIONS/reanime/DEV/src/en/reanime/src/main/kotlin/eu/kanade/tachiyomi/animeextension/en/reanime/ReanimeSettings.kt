@@ -1,23 +1,22 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
-import android.content.Context
+import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
-import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
-import eu.kanade.tachiyomi.animesource.model.SAnime
-import uy.kohesive.injekt.Injekt
-import uy.kohesive.injekt.api.get
 
 /**
  * Settings for the Re:ANIME extension.
  *
+ * Wraps a [SharedPreferences] instance (provided by the main Reanime.kt class)
+ * and exposes typed getters + the settings UI.
+ *
  * Accessed via [ConfigurableAnimeSource] — the app shows these in the
  * extension's settings screen.
+ *
+ * @param prefs The SharedPreferences instance (from `Injekt.get<Application>().getSharedPreferences(...)`)
  */
-class ReanimeSettings(context: Context) {
-
-    private val prefs = context.getSharedPreferences("reanime_prefs", Context.MODE_PRIVATE)
+class ReanimeSettings(private val prefs: SharedPreferences) {
 
     // ── Video playback ───────────────────────────────────────────────
 
@@ -114,6 +113,3 @@ class ReanimeSettings(context: Context) {
         private const val KEY_WEBVIEW_TIMEOUT = "webview_timeout"
     }
 }
-
-/** Convenience accessor — instantiates settings with the app context. */
-val reanimeSettings by lazy { ReanimeSettings(Injekt.get<Context>()) }

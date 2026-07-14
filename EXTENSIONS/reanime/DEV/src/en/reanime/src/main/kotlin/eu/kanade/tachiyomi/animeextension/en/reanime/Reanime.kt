@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.reanime
 
 import android.app.Application
+import android.content.SharedPreferences
 import eu.kanade.tachiyomi.animeextension.en.reanime.extractor.ReanimeExtractor
 import eu.kanade.tachiyomi.animeextension.en.reanime.extractor.WebViewFetcher
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
@@ -45,10 +46,15 @@ class Reanime : ConfigurableAnimeSource, AnimeHttpSource() {
     override val baseUrl = "https://reanime.to"
     override val lang = "en"
     override val supportsLatest = true
+    override val versionId = 1  // ★ STABLE — never bump after publish
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val settings = reanimeSettings
+    // ── Preferences + Settings (lazy — NOT initialized at construction time) ──
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0)
+    }
+    private val settings: ReanimeSettings by lazy { ReanimeSettings(preferences) }
 
     // WebView fetcher — lazy (only created when video extraction is needed)
     private val webViewFetcher: WebViewFetcher by lazy {
@@ -317,6 +323,17 @@ class Reanime : ConfigurableAnimeSource, AnimeHttpSource() {
 
     override fun seasonListParse(response: Response): List<SAnime> =
         throw UnsupportedOperationException("Re:ANIME has no seasons concept")
+
+    /** Sort videos by the user's preferred quality + audio. */
+    override fun List<Video>.sortVideos(): List<Video> {
+        val preferredQuality = settings.preferredQuality
+        val preferredAudio = settings.preferredAudio
+        return sortedWith(
+            compareByDescending<Video> { it.videoTitle.contains(preferredAudio, ignoreCase = true) }
+                .thenByDescending { it.videoTitle.contains(preferredQuality, ignoreCase = true) }
+                .thenByDescending { it.videoTitle },
+        )
+    }
 
     // ════════════════════════════════════════════════════════════════════
     // "Open in WebView" URLs

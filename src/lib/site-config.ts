@@ -110,7 +110,7 @@ export const EXTENSIONS: ExtensionMeta[] = [
     tagline:
       "Anime streaming extension for reanime.to — catalog, search, filters, details, episodes + flixcloud.cc HLS video playback (HD-1/HD-2 × sub/dub).",
     version: "v16.1",
-    build: 1,
+    build: 2,
     date: "July 14, 2026",
     status: "wip",
     availableBuilds: ["debug"],

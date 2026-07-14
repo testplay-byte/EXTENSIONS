@@ -3461,3 +3461,52 @@ Stage Summary:
   - Uni: interceptVideoUrl is the correct approach — needs on-device test to verify the ad plays in WebView and the .m3u8/.mp4 URL is captured
   - Luf-Mp4: needs cf_clearance cookie (on-device only) — no code change
 - Branch `mkissa-v18` merged to main. The branch is preserved for reference.
+
+---
+Task ID: miruro-session-01
+Agent: Main Agent (Z.ai Code)
+Task: Create a new extension branch for Miruro (https://everythingmoe.com/s/miruro). Analyze the website — homepage, latest, search, filters, details page, player page, all servers, qualities, audio versions (sub/dub/hsub). Document everything. Present a detailed overview to the user for verification. Do NOT build yet — wait for user verification + corrections.
+
+Work Log:
+- Created branch `miruro` from `main` in /home/z/EXTENSIONS.
+- Scaffolded EXTENSIONS/miruro/ from _template (DEV/, APK/, ANALYSIS/, MEMORY/{sites,session-logs,issues-resolutions,modules,research,workflow,TEMPORARY_MEMORY}).
+- Analyzed everythingmoe.com/s/miruro with agent-browser: confirmed it is an aggregator INFO page (not the streaming site). Extracted nav links → miruro.to (primary), .ru/.bz/.tv (mirrors), miruro.com (mirrors list), GitHub Miruro-no-kuon/Miruro-no-Kuon. Feature tags: Multiple sources & language, Modern interface, Open source, scrapes content from multiple streaming sites. User reviews confirm sub+dub, AniList linking.
+- Attempted to load miruro.to + all 4 mirrors in agent-browser: ALL return Cloudflare "Just a moment..." Managed Challenge + Turnstile. Headless agent-browser CANNOT pass the Turnstile (CF detects headless even after issuing cf_clearance). --headed mode unavailable in sandbox (no display). curl with desktop Chrome UA → HTTP 403 challenge on all mirrors. Conclusion: live API verification requires on-device WebView (same constraint as MKissa).
+- Cloned the open-source Miruro repo (github.com/Miruro-no-kuon/Miruro-no-Kuon) to /home/z/miruro-source for architecture research (the SITE's own source — legitimate research, like reading its HTML/JS; will verify live afterward).
+- Read src/hooks/useApi.ts (the complete Consumet API layer — 12 endpoints), src/hooks/animeInterface.ts (data shapes), src/hooks/useFilters.ts (6 filter categories), src/components/Watch/Video/MediaSource.tsx (Sub/Dub × Default/Vidstream/Gogo grid), src/components/Watch/Video/Player.tsx (Vidstack player + aniskip.com skip times), .env.example, server/server.ts, vercel.json.
+- Verified the public Consumet API (public-miruro-consumet-api.vercel.app) is DEAD — returns DEPLOYMENT_NOT_FOUND (HTTP 404). Known public Consumet instances (api.consumet.org, heroku) also dead. The live backend URL is baked into miruro.to's CF-protected JS bundle.
+- Probed miruro.com (NOT CF-protected, HTTP 200, 110KB HTML) — static "official domains" landing page confirming the 4 mirrors + features (FHD, Subbed & Dubbed, AniList Sync, No Registration).
+- Checked GitHub org Miruro-no-kuon: only 1 public repo (the frontend). No separate backend repo.
+- Wrote EXTENSIONS/miruro/MEMORY/sites/site-analysis.md — complete 11-section analysis with per-item verification status.
+- Wrote EXTENSIONS/miruro/EXTENSION.md — identity (Miruro 180, package ...en.miruro180, extClass ...en.miruro.Miruro, versionId 1), build, status.
+- Wrote EXTENSIONS/miruro/MEMORY/session-logs/2025-07-14_session-01_site-analysis.md.
+
+Stage Summary:
+- ★ Branch `miruro` created. Extension folder scaffolded.
+- ★ Step 1 (site analysis) COMPLETE and documented.
+- ★ Key findings: Miruro is a React+Vite SPA over the Consumet API (meta/anilist provider). 2 audio types (SUB+DUB, no HSUB). 3 sources (Default/Vidstream/Gogo) × 2 audio = 6 combinations. 6 filter categories (Genres 17, Year, Season 4, Format 7, Status 4, Sort 12). Vidstack player (HLS+MP4, qualities default/1080p/720p/360p). Cloudflare Turnstile on all mirrors (needs WebView solver). AniList metadata comes free from backend. aniskip.com for skip times.
+- ★ Identity proposed: Miruro 180, package eu.kanade.tachiyomi.animeextension.en.miruro180, extClass eu.kanade.tachiyomi.animeextension.en.miruro.Miruro, versionId 1, baseUrl https://www.miruro.to.
+- ⚠️ Open item: the live backend URL (public default dead) — needs on-device discovery (load miruro.to in WebView, extract VITE_BACKEND_URL from JS) OR user-provided URL.
+- ⏳ Awaiting user verification of the analysis. Next step (after verification): analyze video stream capture methods (watch endpoint response, CDN domains, Referer) — then build.
+- Honest status: source-code verified (API structure, filters, audio, sources, player, data shapes). NOT live-verified (CF blocks headless; needs on-device WebView — same constraint as MKissa).
+
+---
+Task ID: miruro-session-02
+Agent: Main Agent (Z.ai Code)
+Task: User corrected session-01 analysis — I missed servers (~11 sub/hsub, ~8 dub) and didn't check reference repos. Re-analyze using yuzono reference extension + the user's test episode (miruro.to/watch/185542/skeleton-knight-in-another-world-season-2?ep=1).
+
+Work Log:
+- Cloned yuzono/anime-extensions reference repo to /home/z/anime-extensions-ref. Found existing src/en/miruro extension (2234 lines) — a complete working reference for this exact site.
+- Read all yuzono miruro source files: Miruro.kt (main), MiruroExtractor.kt (XOR+gzip decrypt + proxy + embed routing), MiruroDto.kt (DTOs), MiruroFilters.kt (8 filter categories), MiruroBrowserFingerprintInterceptor.kt (Chrome 148 WAF bypass), build.gradle (deps + isNsfw=true).
+- Live-probed miruro.tv with curl + full browser fingerprint headers: homepage → 403 cf-mitigated:challenge; pipe API → 403 cf-mitigated:challenge. Discovered CF has UPGRADED since yuzono was written — now a managed challenge (yuzono comment described only a WAF block). Extension needs BOTH fingerprint interceptor AND WebView CF solving.
+- Rewrote MEMORY/sites/site-analysis.md (corrected): Miruro has its OWN pipe API (/api/secure/pipe?e=base64url-json), NOT Consumet. Response = XOR(PIPE_KEY)+gzip. 11 providers (AnimePahe/Anikoto/AniDao/9Anime/Moon/Zoro/Pewe/Nun/Bun/Twin/Cog + Dune/Kuz). 4 audio types (sub/dub/ssub/h-sub). 8 filter categories. Proxy vault01/02.ultracloud.cc with FNV-1a selection. Embed extractors: MegaCloud/RapidCloud/OmniEmbed/M3u8Integration. AniLib fallback. 15 settings. isNsfw=true.
+- Updated EXTENSION.md with corrected identity, 11-provider table, required libs, crypto keys.
+- Wrote session-02 log documenting the corrections + root cause (I analyzed the open-source frontend but not the reference Aniyomi extensions repo — violated PROJECT_RULES §1).
+
+Stage Summary:
+- ★ CORRECTED the major errors from session 01: 3 servers → 11 providers; 2 audio types → 4 (sub/dub/ssub/h-sub); isNsfw false → true; "unknown backend URL" → pipe API on miruro.tv itself.
+- ★ Identified the yuzono src/en/miruro extension as the authoritative reference to adapt from (NOT copy — per project rules).
+- ★ Documented the pipe API architecture fully: endpoint, e= payload format, XOR+gzip response crypto, PIPE_KEY/PROXY_KEY values, 5 pipe paths (search/browse, search, info, episodes, sources).
+- ★ Documented the video pipeline: proxy (vault01/02 + FNV-1a + XOR(PROXY_KEY)), embed routing (MegaCloud/RapidCloud/OmniEmbed), HLS via M3u8Integration.
+- ⏳ Awaiting user verification of the corrected analysis. Next: Step 1.5 (video stream capture methods per provider) → Step 2-5 (build).
+- Honest status: reference-verified (yuzono working extension) for all architecture claims. Live-verified CF managed challenge. NOT live-verified: the actual sources response for ep 1 of 185542 (CF blocks curl; on-device verification during Step 4).

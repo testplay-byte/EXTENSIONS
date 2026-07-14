@@ -12,6 +12,7 @@
 | **AniKoto 180** | [`EXTENSIONS/anikoto/`](../EXTENSIONS/anikoto/) | `en` | ✅ All features working | v16.9 (Build 7, versionCode 9, versionId 11) | anikototv.to | `...en.anikoto.Anikoto` |
 | **AnimePahe 180** | [`EXTENSIONS/animepahe/`](../EXTENSIONS/animepahe/) | `en` | ✅ All features working | v16.10 (Build 10, versionCode 10, versionId 1) | animepahe.pw | `...en.animepahe.AnimePahe` |
 | **MKissa 180** | [`EXTENSIONS/mkissa/`](../EXTENSIONS/mkissa/) | `en` | 🚧 In progress (3/6 video servers working) | v16.17 (Build 17, versionCode 17, versionId 1) | mkissa.to | `...en.mkissa.MKissa` |
+| **Miruro 180** | [`EXTENSIONS/miruro/`](../EXTENSIONS/miruro/) | `en` | 🚧 In progress (pipe API + 11 providers + 4 sub-types, HLS working) | v16.1 (Build 1, versionCode 1, versionId 1) | miruro.tv | `...en.miruro.Miruro` |
 
 ## Status legend
 

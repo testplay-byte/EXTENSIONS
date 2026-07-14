@@ -3548,3 +3548,48 @@ Stage Summary:
   - /home/z/EXTENSIONS/SHARED/REFERENCE_HUB/anime-extensions-ref/lib/cloudflareinterceptor/src/aniyomi/lib/cloudflareinterceptor/CloudflareInterceptor.kt  ← CF interceptor (only if needed for AniDB later)
   - /home/z/EXTENSIONS/EXTENSIONS/animepahe/DEV/stubs/src/main/kotlin/eu/kanade/tachiyomi/animesource/model/Video.kt  ← 14-arg primary + 6-arg deprecated Video ctor
   - /home/z/EXTENSIONS/EXTENSIONS/anikoto/DEV/src/en/anikoto/build.gradle.kts  ← ext-lib v16 module build.gradle.kts reference
+
+---
+Task ID: anidb-session-01
+Agent: Main Agent (Z.ai Code)
+Task: Build new AniDB 180 extension for anidb.app — full site analysis + implementation + CI build + release + webpage update
+
+Work Log:
+- Analyzed the target site (user provided everythingmoe.com/s/anidbstream review page → traced to actual site anidb.app).
+- VERIFIED via curl + agent-browser: anidb.app is a Laravel + Alpine.js server-rendered HTML site (NOT a SPA) with JSON APIs for episodes/languages. Behind Cloudflare but OkHttp with desktop UA gets HTTP 200 (no Turnstile for non-headless). Single HLS video server (hls.anidb.app), no token crypto, no PNG wrapping, no WebView needed. SUB (jpn) + DUB (eng), no HSUB. NSFW (has Erotica + Hentai genres).
+- Published detailed analysis for user verification; user approved.
+- Launched research subagent (anidb-ref-research) to clone yuzono/anime-extensions reference repo + study HLS extraction patterns. Key findings: PlaylistUtils.extractFromHls is the standard HLS helper; Video constructor uses named args (videoUrl, videoTitle, headers, subtitleTracks); UriPartFilter pattern for browse query params; AnimeFilter.Group<CheckBox> for multi-select genres.
+- Studied animepahe source (closest analog — HTML + JSON + single Kwik server) + mkissa's PlaylistUtils.kt + ext-lib v16 Video.kt stub.
+- Scaffolded EXTENSIONS/anidb/ by copying animepahe's DEV infrastructure (gradle wrapper, stubs, common configs) and adapting build configs for anidb (extName, extClass, versionCode=1, versionId=1, NSFW=true, applicationIdSuffix=en.anidb180).
+- Implemented 7 source files:
+  - AniDB.kt — main source (popular/latest/search with 7 filter categories, details from HTML, episodes via JSON API, video via languages API → embed → m3u8 → PlaylistUtils)
+  - AniDBDto.kt — @Serializable DTOs (EpisodesResponse, LanguagesResponse)
+  - AniDBFilters.kt — Sort/Type/Status/Season/Year (UriPartFilter) + Genres/Themes (Group<IdCheckBox>)
+  - AniDBSettings.kt — preferred quality, preferred audio, mark filler toggle
+  - AniDBLog.kt — logcat-only logger
+  - extractor/AniDBExtractor.kt — embed page → regex m3u8 from JW Player sources blob
+  - extractor/PlaylistUtils.kt — HLS master.m3u8 → Video list (adapted from mkissa's)
+- Generated temporary AI icon (dark background + orange play triangle) via z-ai image CLI, resized to 5 mipmap densities + public/anidb-icon.png.
+- Updated site-config.ts to add AniDB card; updated build.yml + release.yml to build AniDB debug APK.
+- CI build #1 FAILED: "Unresolved reference 'type'" — SAnime has no `type` field. Fixed by including the type (TV/Movie/OVA) as the first entry in the genre string.
+- CI build #2 PASSED: all 4 extensions (AniKoto, AnimePahe, MKissa, AniDB) compiled successfully.
+- Rebasing anidb branch onto main (main had moved with mkissa-v19 changes); resolved worklog.md conflict; force-pushed.
+- Merged PR #1 (squash) to main; tagged v1.3.0.
+- Release workflow v1.3.0 PASSED: published 4 APKs (AniDB debug 116KB, AniKoto release 268KB, AnimePahe release 262KB, MKissa debug 289KB).
+- Pages redeploy PASSED: all 4 APKs now serve same-origin from /EXTENSIONS/downloads/.
+- Verified live site (https://testplay-byte.github.io/EXTENSIONS/): 4 extension cards including AniDB, AniDB download button serves the correct APK (HTTP 200, 116,356 bytes, application/vnd.android.package-archive).
+
+Stage Summary:
+- ★ NEW EXTENSION: AniDB 180 (v16.1, build 1, versionId 1) — the 4th extension in the project.
+- ★ Full pipeline operational: CI builds debug APK → release.yml publishes signed release + AniDB debug → Pages serves same-origin downloads.
+- ★ AniDB is the SIMPLEST extension: single HLS server, no crypto, no PNG wrapping, no WebView, no Turnstile. Cloudflare handled by inherited client + desktop UA.
+- ★ Site analysis documented in EXTENSIONS/anidb/MEMORY/sites/site-analysis.md (14 sections, all verified).
+- ★ Identity: AniDB 180, package eu.kanade.tachiyomi.animeextension.en.anidb180, extClass eu.kanade.tachiyomi.animeextension.en.anidb.AniDB, NSFW true.
+- HONEST STATUS — needs on-device testing (cannot verify in sandbox):
+  - Catalog (popular/latest/search/filters) — should work (HTML scraping with Jsoup, verified via curl)
+  - Details — should work (HTML metadata grid parsing)
+  - Episodes — should work (clean JSON API, verified via curl)
+  - Video playback — should work (embed page → m3u8 regex → HLS variants, verified via curl; needs on-device player test)
+  - Cloudflare — should work (inherited client gets HTTP 200 via curl with desktop UA)
+- Release v1.3.0 live: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.3.0
+- Download page live: https://testplay-byte.github.io/EXTENSIONS/ — 4 cards, AniDB download serves 116KB debug APK.

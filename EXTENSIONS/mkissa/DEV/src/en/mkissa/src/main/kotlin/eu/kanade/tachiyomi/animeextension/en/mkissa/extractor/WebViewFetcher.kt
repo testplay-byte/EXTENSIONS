@@ -8,6 +8,7 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import eu.kanade.tachiyomi.animeextension.en.mkissa.MKissaLog
@@ -15,6 +16,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * WebView-based fetcher for the Fm-Hls (Filemoon) and Uni servers.
@@ -465,11 +467,250 @@ class WebViewFetcher(
         return solved
     }
 
+    // ── interceptVideoUrl: network-capture approach (v18) ──────────────────
+
     /**
-     * ★ Load a video player page, auto-click play buttons, and extract the video URL.
+     * ★ Intercept the video URL by monitoring network requests + polling video.src.
      *
-     * This handles players that require user interaction (clicking play) before the video
-     * source is set. Also blocks ad redirects (common on free streaming sites).
+     * This is the v18 replacement for the click-and-poll approach. Instead of
+     * trying to click play buttons and hope video.src gets set, this method:
+     *
+     * 1. **shouldInterceptRequest** — captures every network request at the WebView
+     *    level. Filters for .m3u8 / .mp4 URLs (the actual video stream).
+     * 2. **JS monkey-patch** — injects JS that overrides fetch + XMLHttpRequest
+     *    to scan API response bodies for video URLs (for players like Uni where
+     *    the URL is inside an encrypted API response).
+     * 3. **video.src polling** — periodically checks video.src / currentSrc / source
+     *    elements for http URLs (catches URLs set via JS that aren't direct fetches).
+     * 4. **Auto-click play** — optionally clicks the play button to trigger video
+     *    loading (needed for players like Vidstack that don't auto-play).
+     *
+     * This approach is more reliable than loadAndExtractVideo because it captures
+     * the URL from the player's OWN requests, bypassing ads and play-button
+     * selectors entirely. The ad can play (or not) — we intercept the video URL
+     * regardless.
+     *
+     * @param url The player page URL
+     * @param timeoutMs How long to wait for a video URL (default 30s)
+     * @param autoClickPlay Whether to auto-click the play button (default true)
+     * @return The video URL (http .m3u8 or .mp4), or empty string if not found
+     */
+    fun interceptVideoUrl(
+        url: String,
+        timeoutMs: Long = 30_000,
+        autoClickPlay: Boolean = true,
+    ): String {
+        ensureWebView()
+        MKissaLog.i("WebViewFetcher: interceptVideoUrl — loading $url")
+
+        val videoUrlLatch = CountDownLatch(1)
+        val foundUrl = AtomicReference("")
+
+        /** JS interface — the injected JS calls this when it finds a video URL. */
+        class VideoInterceptor {
+            @JavascriptInterface
+            fun onVideoFound(videoUrl: String) {
+                if (videoUrl.isNotBlank() && videoUrl.startsWith("http") &&
+                    foundUrl.compareAndSet("", videoUrl)
+                ) {
+                    MKissaLog.i("WebViewFetcher: JS intercepted video URL: ${MKissaLog.trunc(videoUrl, 100)}")
+                    videoUrlLatch.countDown()
+                }
+            }
+        }
+        val interceptor = VideoInterceptor()
+
+        synchronized(fetchLock) {
+            mainHandler.post {
+                try {
+                    webView?.addJavascriptInterface(interceptor, "AndroidVideoInterceptor")
+
+                    webView?.webViewClient = object : WebViewClient() {
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): WebResourceResponse? {
+                            val reqUrl = request?.url?.toString() ?: ""
+                            if (looksLikeVideoUrl(reqUrl) && foundUrl.compareAndSet("", reqUrl)) {
+                                MKissaLog.i("WebViewFetcher: network intercepted video URL: ${MKissaLog.trunc(reqUrl, 100)}")
+                                mainHandler.post { videoUrlLatch.countDown() }
+                            }
+                            return null // let the request proceed normally
+                        }
+
+                        override fun onPageFinished(view: WebView?, loadedUrl: String?) {
+                            MKissaLog.d("WebViewFetcher: interceptVideoUrl page loaded: $loadedUrl")
+                            // Inject the JS monkey-patch to scan API responses + capture video.src
+                            view?.evaluateJavascript(VIDEO_INTERCEPTOR_JS, null)
+
+                            // Auto-click play after a short delay (let the player initialize)
+                            if (autoClickPlay) {
+                                mainHandler.postDelayed({
+                                    view?.evaluateJavascript(PLAY_CLICK_JS, null) { result ->
+                                        MKissaLog.d("WebViewFetcher: play click result: $result")
+                                    }
+                                }, 1500)
+                            }
+                        }
+                    }
+
+                    MKissaLog.d("WebViewFetcher: interceptVideoUrl loading player page: $url")
+                    webView?.loadUrl(url)
+                } catch (e: Exception) {
+                    MKissaLog.e("WebViewFetcher: interceptVideoUrl failed", e)
+                    videoUrlLatch.countDown()
+                }
+            }
+
+            // Poll video.src while waiting (catches URLs set via JS that aren't direct fetches)
+            val pollRunnable = object : Runnable {
+                override fun run() {
+                    if (videoUrlLatch.count == 0L) return
+                    mainHandler.post {
+                        webView?.evaluateJavascript(VIDEO_SRC_POLL_JS, null) { result ->
+                            val src = parseJsStringResult(result)
+                            if (src.isNotBlank() && src.startsWith("http") && foundUrl.compareAndSet("", src)) {
+                                MKissaLog.i("WebViewFetcher: poll found video.src: ${MKissaLog.trunc(src, 100)}")
+                                videoUrlLatch.countDown()
+                            }
+                        }
+                    }
+                    if (videoUrlLatch.count > 0) {
+                        mainHandler.postDelayed(this, 800)
+                    }
+                }
+            }
+            mainHandler.postDelayed(pollRunnable, 2000)
+
+            if (!videoUrlLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                MKissaLog.w("WebViewFetcher: interceptVideoUrl timeout (${timeoutMs}ms)")
+            }
+        }
+
+        // Cleanup: remove the JS interface + restore default WebViewClient
+        mainHandler.post {
+            webView?.removeJavascriptInterface("AndroidVideoInterceptor")
+            webView?.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    MKissaLog.d("WebViewFetcher: page loaded: $url")
+                }
+            }
+        }
+
+        val result = foundUrl.get()
+        MKissaLog.i("WebViewFetcher: interceptVideoUrl DONE, url=${MKissaLog.trunc(result, 100)}")
+        return result
+    }
+
+    /** Check if a URL looks like a playable video stream. */
+    private fun looksLikeVideoUrl(url: String): Boolean {
+        val lower = url.lowercase()
+        return when {
+            lower.contains(".m3u8") -> true
+            lower.contains(".mp4") && !lower.contains("mp4upload.com") -> true
+            lower.contains("/manifest.m3u8") -> true
+            lower.contains("/playlist.m3u8") -> true
+            else -> false
+        }
+    }
+
+    /** JS injected on page load — monkey-patches fetch/XHR to scan responses for video URLs. */
+    private val VIDEO_INTERCEPTOR_JS = """
+        (function() {
+            // ★ Monkey-patch fetch — scan JSON/text responses for .m3u8 / .mp4 URLs
+            var origFetch = window.fetch;
+            window.fetch = function() {
+                var args = arguments;
+                return origFetch.apply(this, args).then(function(resp) {
+                    try {
+                        resp.clone().text().then(function(body) {
+                            scanForVideoUrl(body);
+                        });
+                    } catch(e) {}
+                    return resp;
+                });
+            };
+
+            // ★ Monkey-patch XMLHttpRequest — scan response body for video URLs
+            var origSend = XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.send = function() {
+                var xhr = this;
+                xhr.addEventListener('load', function() {
+                    try { scanForVideoUrl(xhr.responseText); } catch(e) {}
+                });
+                return origSend.apply(this, arguments);
+            };
+
+            // ★ Scan a text body for m3u8/mp4 URLs and report them
+            function scanForVideoUrl(body) {
+                if (!body || body.length < 10) return;
+                var m = body.match(/https?:\/\/[^\s"'<>\)]+\.(m3u8|mp4)(\?[^\s"'<>\)]*)?/i);
+                if (m && m[0]) {
+                    try { AndroidVideoInterceptor.onVideoFound(m[0]); } catch(e) {}
+                }
+            }
+
+            // ★ Also watch for src set on video/source elements via MutationObserver
+            var observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mut) {
+                    if (mut.type === 'attributes' && mut.attributeName === 'src') {
+                        var el = mut.target;
+                        if (el.tagName === 'VIDEO' || el.tagName === 'SOURCE') {
+                            var src = el.src || el.getAttribute('src') || '';
+                            if (src && src.startsWith('http')) {
+                                try { AndroidVideoInterceptor.onVideoFound(src); } catch(e) {}
+                            }
+                        }
+                    }
+                });
+            });
+            observer.observe(document.documentElement, {
+                attributes: true, subtree: true, attributeFilter: ['src']
+            });
+        })();
+    """.trimIndent()
+
+    /** JS to click the play button — works with Vidstack, JW Player, video.js, and custom players. */
+    private val PLAY_CLICK_JS = """
+        (function() {
+            var selectors = [
+                'media-play-button', '.vds-play-button', '[data-play]',
+                '.play-button', 'button[aria-label*="play" i]',
+                '.jw-icon-playback', '.vjs-play-button', '.plyr__control--overlaid',
+                '#vid_play', '#desk button', '#desk'
+            ];
+            for (var i = 0; i < selectors.length; i++) {
+                var el = document.querySelector(selectors[i]);
+                if (el) { try { el.click(); } catch(e) {} return 'clicked: ' + selectors[i]; }
+            }
+            var v = document.querySelector('video');
+            if (v) { try { v.play(); } catch(e) {} v.click(); return 'clicked video'; }
+            return 'no play button found';
+        })();
+    """.trimIndent()
+
+    /** JS to poll video.src / currentSrc / source elements for http URLs. */
+    private val VIDEO_SRC_POLL_JS = """
+        (function() {
+            var videos = document.querySelectorAll('video');
+            for (var i = 0; i < videos.length; i++) {
+                var s = videos[i].src || videos[i].currentSrc || '';
+                if (s && s.startsWith('http')) return s;
+            }
+            var sources = document.querySelectorAll('source');
+            for (var i = 0; i < sources.length; i++) {
+                var s = sources[i].src;
+                if (s && s.startsWith('http')) return s;
+            }
+            return '';
+        })();
+    """.trimIndent()
+
+    /**
+     * ★ Legacy: Load a video player page, auto-click play buttons, and extract the video URL.
+     *
+     * Kept as a fallback. For new code, prefer [interceptVideoUrl] which captures the
+     * URL from network requests instead of relying on click-and-poll.
      *
      * @param url The player page URL
      * @param clickDelayMs Delay between clicks (default 3s)

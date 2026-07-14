@@ -629,15 +629,15 @@ class MKissaExtractor(
                 }
             }
 
-            // ★ Step 3: If OkHttp failed, use loadAndExtractVideo to load the embed frame page,
-            // auto-click the play buttons, and extract the video URL from the video element.
+            // ★ Step 3: If OkHttp failed (405 — upstream API issue), use interceptVideoUrl
+            // to capture any video URL the player fetches via network interception.
+            // This is more reliable than the old click-and-poll approach.
             if (playbackBody.isBlank() && webViewFetcher != null) {
-                MKissaLog.i("extractFilemoon: OkHttp failed — using loadAndExtractVideo (auto-click play buttons)")
-                val videoSrc = webViewFetcher.loadAndExtractVideo(
+                MKissaLog.i("extractFilemoon: OkHttp failed (HTTP 405) — using interceptVideoUrl (network capture)")
+                val videoSrc = webViewFetcher.interceptVideoUrl(
                     url = embedUrl,
-                    clickDelayMs = 4000, // Fm-Hls has a "Loading your video" step — wait longer between clicks
-                    maxClicks = 3,
-                    pollTimeoutMs = 20_000,
+                    timeoutMs = 25_000,
+                    autoClickPlay = true,
                 )
                 if (videoSrc.isNotBlank() && videoSrc.startsWith("http")) {
                     MKissaLog.i("extractFilemoon: found video URL via loadAndExtractVideo: ${MKissaLog.trunc(videoSrc, 80)}")
@@ -940,12 +940,17 @@ class MKissaExtractor(
 
     /** Uni server — custom JS player (allanime.uns.bio).
      *
-     * The Uni player loads allanime.uns.bio/#<hash>, fetches encrypted video data from its API,
-     * and requires the user to click the play button (which triggers ad redirects). After 2-3
-     * clicks (with ad redirects blocked), the video source is set on the video element.
+     * The Uni player loads allanime.uns.bio/#<hash>, fetches encrypted video data from its API
+     * (/api/v1/info?id=<hash>), decrypts it in JS module scope (AES-CBC, key derived from
+     * window.location), and uses Google IMA SDK for video ads. The video URL is only set on
+     * the video element after the ad plays.
      *
-     * ★ Uses loadAndExtractVideo: loads the page, blocks ad redirects, auto-clicks play,
-     * polls video.src until the video URL is found.
+     * ★ v18: Uses interceptVideoUrl — captures the video URL from the player's own network
+     * requests (shouldInterceptRequest) + JS monkey-patch (fetch/XHR response scanning) +
+     * video.src polling. This bypasses the ad entirely — we intercept the .m3u8/.mp4 URL
+     * from the player's fetch, regardless of whether the ad plays.
+     *
+     * The ad can play (or not) — we capture the video URL from the network layer.
      */
     private suspend fun extractUni(url: String, name: String): List<Video> {
         if (webViewFetcher == null) {
@@ -954,20 +959,19 @@ class MKissaExtractor(
         }
 
         return try {
-            MKissaLog.i("extractUni: using loadAndExtractVideo for $url")
-            val videoSrc = webViewFetcher.loadAndExtractVideo(
+            MKissaLog.i("extractUni: using interceptVideoUrl (network capture) for $url")
+            val videoSrc = webViewFetcher.interceptVideoUrl(
                 url = url,
-                clickDelayMs = 3000, // 3s between clicks (ad redirects take time)
-                maxClicks = 4, // Uni needs 3 clicks (ad, ad, video) — try 4 to be safe
-                pollTimeoutMs = 20_000,
+                timeoutMs = 35_000,
+                autoClickPlay = true,
             )
 
             if (videoSrc.isBlank() || !videoSrc.startsWith("http")) {
-                MKissaLog.w("extractUni: no video URL found via loadAndExtractVideo")
+                MKissaLog.w("extractUni: no video URL intercepted. The ad may not have played (headless/WebView) or the encrypted API may not have returned a playable URL.")
                 return emptyList()
             }
 
-            MKissaLog.i("extractUni: found video URL: ${MKissaLog.trunc(videoSrc, 80)}")
+            MKissaLog.i("extractUni: intercepted video URL: ${MKissaLog.trunc(videoSrc, 80)}")
             val uniHeaders = headers.newBuilder().set("Referer", "https://allanime.uns.bio/").build()
 
             if (videoSrc.contains(".m3u8")) {

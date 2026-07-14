@@ -3821,3 +3821,39 @@ Stage Summary:
 - ★ FIX: Added versionId override + changed settings to lazy init (matching the pattern in ALL working extensions: AniKoto, AnimePahe, MKissa, AniDB).
 - ★ Build 2 (v16.1) live on the download page. The extension should now load correctly in Aniyomi after trusting.
 - HONEST NOTE: this was a classic ext-lib v16 pitfall — the stubs use `open` (not `abstract`) for `versionId`, so the compiler doesn't catch the missing override. This should be added to HOW_TO_BUILD_EXTENSION/common-pitfalls.md.
+
+---
+Task ID: reanime-video-fix
+Agent: Main Agent (Z.ai Code)
+Task: Fix two video issues reported by user: (1) only HD-1 sub server shows, (2) episodes don't play.
+
+Work Log:
+- User reported: "the episodes dont play and only the HD-1 sub server shows"
+- Browser-verified /api/flix/ still returns 4 servers (HD-1/HD-2 × sub/dub). HD-1 sub+dub share the same embed URL (v=1); HD-2 sub+dub share v=2.
+- Verified m3u8 token behavior: the /api/m3u8/<token> is truly SINGLE-USE. First fetch=200, second fetch=410 "invalid_or_used_token". The player JS consumes it. Also saw 403 (Cloudflare) on some attempts — flixcloud.cc is aggressively CF-protected.
+- ROOT CAUSE of "only HD-1 sub": the extractor filtered servers by audioType (preferredAudio=sub → only sub servers shown). This was wrong — should show ALL servers and let the user pick.
+- ROOT CAUSE of "episodes don't play": the OkHttp fetch in shouldInterceptRequest used the inherited `client` (has CloudflareInterceptor) which interferes with flixcloud.cc (different CF zone). The m3u8 fetch failed → no playable URL.
+
+- FIX 1 — Show ALL servers (not just preferred audio):
+  - Changed ReanimeExtractor to NOT filter by audioType. preferredAudio is for SORTING only.
+  - Deduplicate embed URLs: HD-1 sub+dub share v=1, so only load 2 unique embeds (not 4).
+  - Each embed produces Videos for all audio types that share it.
+- FIX 2 — Plain OkHttp client for flixcloud m3u8:
+  - Created `plainClient` (OkHttpClient.Builder().build() — no CloudflareInterceptor) for flixcloud.cc m3u8 requests.
+  - Passes WebView cookies (cf_clearance for flixcloud.cc) + Referer + UA manually.
+  - Only treats response as m3u8 if status=200 AND body starts with #EXTM3U (prevents CF challenge HTML from being treated as m3u8).
+- FIX 3 — Better Video labeling: "HD-1 - 1080p - SUB" (server × quality × audio).
+
+- Compile issues fixed during CI iterations:
+  - Build 3 first attempt (#34): `client.newCall(GET(...)).use{}` — missing `.execute()` (newCall returns Call, not Response). Fixed: `.execute().use{}`.
+  - Build 3 second attempt (#37): blocked by MKissa compile error (someone else's commit `4f126d9` had `__CF$cv$params` — Kotlin interprets `$cv` as string interpolation). Fixed by escaping as `__CF\$cv\$params` (another agent pushed the same fix concurrently).
+
+- Release v1.4.3: ✅ SUCCESS — reanime APK = 137,489 bytes (build 3).
+- Verified live: download link serves 137,489 bytes (HTTP 200). Page shows "Build 03". DEX contains plainClient + interceptVideoUrls + extractFromEmbed.
+
+Stage Summary:
+- ★ Build 3 (v16.1) live on the download page.
+- ★ All 4 servers (HD-1/HD-2 × sub/dub) should now appear in the video list.
+- ★ m3u8 capture uses a plain OkHttp client (no CloudflareInterceptor) with WebView cookies — should successfully fetch the master playlist before the player consumes the token.
+- ★ Videos are labeled with server × quality × audio (e.g. "HD-1 - 1080p - SUB").
+- HONEST NOTE: video playback still needs on-device verification. The shouldInterceptRequest approach intercepts the m3u8 request, fetches it via plainClient (with cf_clearance cookie from WebView), reads the master playlist body, parses quality variants, and returns variant URLs as Videos. Variant URLs are on a CDN and should not need tokens. If playback still fails, the most likely issue is the variant URLs needing specific headers (Referer/Origin) — which are set in the Video's headers field.

@@ -3593,3 +3593,40 @@ Stage Summary:
   - Cloudflare — should work (inherited client gets HTTP 200 via curl with desktop UA)
 - Release v1.3.0 live: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.3.0
 - Download page live: https://testplay-byte.github.io/EXTENSIONS/ — 4 cards, AniDB download serves 116KB debug APK.
+Task ID: reanime-step1
+Agent: Main Agent (Z.ai Code)
+Task: Create new branch 'reanime' + Step-1 site analysis of reanime.to (homepage, latest, search, filters, details, player, servers, qualities, audio versions). NO code changes yet — analysis + documentation only, awaiting user verification before Step 8.
+
+Work Log:
+- Created branch 'reanime' from main, pushed to origin/reanime.
+- Loaded agent-browser skill; bypassed Cloudflare Turnstile on reanime.to via realistic desktop Chrome User-Agent on a fresh browser context (auto-solves in ~10-13s). Note: cf_clearance is short-lived (~minutes); reusing an expired context re-triggers the challenge and reload does NOT auto-solve — must restart fresh.
+- Analyzed homepage (/home): SvelteKit SSR. 4 sections (hero carousel, Latest Episodes with All/Sub/Dub tabs, New on Site, Upcoming) — ALL SSR'd. Only 4 client-side API calls: /api/v1/user (401), /community/unread-count, /top/anime?period=today&limit=10, /schedule?tz=UTC&year&month.
+- Extracted URL routing: /home, /anime/<slug>-<6char-id> (details), /watch/<slug>-<6id>?ep=<N>&lang=<sub|dub> (player).
+- Analyzed search: command-palette modal (⌘S), ANIME/USERS tabs. API: GET /api/v1/search?q=&limit=&offset= (PUBLIC, 200). Empty q= → popular list.
+- Verified search filter params WORK: year, season (FALL/WINTER/SPRING/SUMMER), format (TV/MOVIE/OVA/ONA/SPECIAL). IGNORED: genres/with_genres/tags/genres[], sort (popularity/score/latest/recent/new), order. Browse/catalog/anime/latest/recent/popular/trending/new/upcoming endpoints all return 401 (auth-gated) — NOT public.
+- Captured search result shape: {anime_id, title{english,native,romaji}, cover_image{extra_large,large,medium,color}, format, status, genres[], season, season_year, episodes, subbed, dubbed, duration, average_score, popularity, rating, can_watch, can_request}.
+- Analyzed details page (/anime/mobile-suit-gundam-the-witch-from-mercury-wve5ef): SSR'd. Metadata: title+alt-titles (romaji + multi-lang), type, episodes, duration, status, start date, season, synopsis, genres, studios, Stats (Subbed 12 / Dubbed 12), related seasons & series (120 entries).
+- Analyzed player page (/watch/...?ep=1&lang=sub): episode list sidebar (1-12 + special), server switch buttons (HD-1/HD-2), video in cross-origin iframe → https://flixcloud.cc/e/<code>?v=<N>&autoPlay=true&skI=false&skO=false&kuudere_ts=<ms>.
+- Captured player-page API calls: /api/v1/anime/<slug>/episodes?limit=2000 (episode list), /api/flix/<anilist_id>/<ep> (★ server list), /api/v1/downloads/check?anilist_id=X&mal_id=Y&episode=N (★ reveals anilist_id+mal_id), /api/thumbnails/<anilist_id>, /api/v1/anime/<slug>/rating, /comments, /recommendations, /watch/<slug>/__data.json (SvelteKit SSR data).
+- Episodes JSON shape: {data:[{episodeId:"ep-N", episode_number, title, title_japanese, title_romanji, description, duration, aired, is_filler, is_recap, site:"MyAnimeList", thumbnail, url, updated_at}]}.
+- Video sources JSON (/api/flix/139274/1 for Gundam ep1): {success:true, servers:[{$id:"hd1-<code>-sub", serverName:"HD-1", dataLink:"https://flixcloud.cc/e/<code>?v=1", dataType:"sub", continue:false, softsub:false}, ...hd1-dub, hd2-sub, hd2-dub]}. → 2 servers (HD-1, HD-2) × 2 audio types (sub, dub).
+- Audio versions: sub ✅, dub ✅. NO hsub (not a separate dataType — "sub" IS hardsub default with softsub:false; softsub is a player toggle via skI/skO params). Confirmed via dataType field + Stats Subbed/Dubbed + homepage Sub/Dub tabs.
+- flixcloud.cc player: also SvelteKit + Cloudflare. Page title = source MKV filename ([Erai-raws] ... [1080p CR WEB-DL AVC AAC][MultiSub], [Anime Time] ...) → source quality 1080p, MKV remuxed to HLS.
+- Stream API: player fetches GET https://flixcloud.cc/api/m3u8/<24hex-token> (200). Token is SINGLE-USE — re-fetch returns 410 {"error":"invalid_or_used_token"}. Two m3u8 requests per play (master+variant or sub+dub).
+- flixcloud player SSR data (__data.json) exposes (obfuscated names): video_id, video_title, audio_type, default_audio_track, aid, subtitles, available_fonts, intro_chapter, outro_chapter, chapters, skipIntro, skipOutro, thumbnails_vtt, obfuscated_crypto_data, obfuscation_seed, w_payload, iframe_domain, player_settings. → AniKoto-RC4-style architecture: stream URL encrypted, decrypted in JS.
+- Could NOT capture a fresh m3u8 master playlist body: the flixcloud player self-clears to about:blank when opened directly in headless (anti-automation), and the cross-origin iframe blocks autoplay + frame-switching. cf_clearance expired before sampling more titles for server variety. → Exact HLS qualities + server variety deferred to Step 8 (interceptVideoUrl network-capture approach, same as MKissa v16.18).
+- Wrote EXTENSIONS/reanime/ (scaffold from _template) + MEMORY/sites/site-analysis.md (comprehensive 11-section analysis) + EXTENSION.md (identity + status, [ANALYSIS] markers on provisional fields).
+- Committed to branch 'reanime'. Awaiting user verification of the overview before Step 8.
+
+Stage Summary:
+- ★ Branch 'reanime' created + pushed to GitHub.
+- ★ Step-1 site analysis COMPLETE and documented in EXTENSIONS/reanime/MEMORY/sites/site-analysis.md.
+- ★ Catalog: GET /api/v1/search (public) — q/limit/offset/year/season/format work; genres/sort ignored; browse endpoints auth-gated (401). Empty q= → popular list.
+- ★ Episodes: GET /api/v1/anime/<anime_id>/episodes?limit=2000.
+- ★ Video sources: GET /api/flix/<anilist_id>/<ep> → servers HD-1/HD-2 × sub/dub → flixcloud.cc/e/<code>?v=<N> embed.
+- ★ Audio types: sub, dub (NO hsub). softsub is a player toggle, not a type.
+- ★ Stream: flixcloud.cc/api/m3u8/<single-use-24hex-token> → HLS; AniKoto-RC4-style obfuscated crypto in player JS.
+- ★ Source quality: 1080p (from MKV filenames). Exact HLS variants TBD in Step 8.
+- ⚠️ Cloudflare: reanime.to + flixcloud.cc both Turnstile-protected; cf_clearance short-lived. Bypass = WebView + native MotionEvent (MKissa pattern).
+- ⚠️ Open for Step 8: exact HLS qualities, server variety across titles, m3u8 token derivation, subtitle delivery.
+- NO code/extension built yet — awaiting user verification per the agreed workflow.

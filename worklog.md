@@ -3421,3 +3421,43 @@ Stage Summary:
 - ★ All 8 UI improvements applied and verified on the live site (https://testplay-byte.github.io/EXTENSIONS/).
 - ★ deploy-pages auto-fetches latest release APKs; release auto-redeploys Pages. Pipeline stays in sync.
 - Dev note: in local dev (port 3000) downloads 404 because no APKs are in public/downloads/ — expected (APKs only exist on the deployed Pages site / in releases).
+
+---
+Task ID: mkissa-v18
+Agent: Main Agent (Z.ai Code)
+Task: Improve MKissa extension v16.18 — implement interceptVideoUrl (network capture) for Fm-Hls + Uni servers, bump versionCode 17→18, build via GitHub Actions, release v1.1.0, redeploy Pages
+
+Work Log:
+- Created branch `mkissa-v18` for the improvement work.
+- VALIDATED approaches via browser BEFORE coding:
+  - Filemoon (Fm-Hls): tested same-origin fetch from the embed frame page → still 405. Tested multiple videos → 405 site-wide. Confirmed: the Filemoon player (bysekoze.com/q8y5z.com) is BROKEN upstream (playback API returns 405 even for the player's own JS). Not fixable in our code — graceful handling only.
+  - Uni: loaded the player page, clicked play, monitored network requests → the player fetches /api/v1/info?id=<hash> (returns AES-CBC encrypted hex), uses Google IMA SDK for ads, and the video URL is only set after the ad plays. No .m3u8/.mp4 URL appeared in headless mode (ad didn't play). Network interception is the correct approach but needs on-device verification.
+- Implemented `interceptVideoUrl` method in WebViewFetcher.kt — the v18 replacement for the click-and-poll `loadAndExtractVideo`:
+  1. shouldInterceptRequest — captures .m3u8/.mp4 URLs from ALL network requests at the WebView level
+  2. JS monkey-patch — overrides fetch + XMLHttpRequest to scan API response bodies for video URLs (for players like Uni where the URL is inside an encrypted API response)
+  3. MutationObserver — watches video/source src attribute changes
+  4. video.src polling — periodically checks video.src/currentSrc/source elements for http URLs
+  5. Auto-click play — works with Vidstack, JW Player, video.js, and custom players
+- Updated extractUni to use interceptVideoUrl (was loadAndExtractVideo).
+- Updated extractFilemoon's WebView fallback to use interceptVideoUrl (was loadAndExtractVideo).
+- Bumped versionCode 17→18, kept versionName "16.17" (build improvement, not a feature release).
+- Updated site-config.ts build display 17→18.
+- CI build on mkissa-v18 branch: ✅ ALL steps passed (including Build MKissa debug).
+- Merged mkissa-v18 to main, tagged v1.1.0.
+- First release attempt: ✗ Build MKissa (debug) failed — evaluateJavascript takes 2 args, not 3 (was passing `null` + trailing lambda = 3 args). Fixed by removing the `null` and using trailing-lambda form.
+- Re-tagged v1.1.0, re-triggered release: ✅ ALL 14 steps passed (keystore restore, signed AniKoto + AnimePahe builds, MKissa debug build, GitHub Release created, Pages redeploy triggered).
+- GitHub Release v1.1.0 published with 3 APKs: AniKoto (268KB signed), AnimePahe (262KB signed), MKissa (286KB debug — new build with interceptVideoUrl).
+- Pages redeploy completed: download links verified (MKissa = 286,277 bytes = the new build). Live page shows "Build 18" for MKissa.
+
+Stage Summary:
+- ★ MKissa v16.18 (build 18) released with the new interceptVideoUrl network-capture approach.
+- ★ The interceptVideoUrl method captures video URLs from 4 layers: network requests (shouldInterceptRequest), JS fetch/XHR response scanning, MutationObserver (src attribute), and video.src polling. This is architecturally superior to the old click-and-poll approach.
+- ★ CI verified: all 3 extensions compile (including MKissa with the new code).
+- ★ Release v1.1.0 live: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.1.0
+- ★ Download page live: https://testplay-byte.github.io/EXTENSIONS/ — MKissa shows Build 18, download serves the new APK.
+- HONEST STATUS — needs on-device testing (cannot verify in sandbox):
+  - Mp4 ✅, Ok ✅, Vn-Hls ✅ (already working, no change)
+  - Fm-Hls: upstream API broken (405 site-wide) — graceful handling, will work IF Filemoon fixes their API
+  - Uni: interceptVideoUrl is the correct approach — needs on-device test to verify the ad plays in WebView and the .m3u8/.mp4 URL is captured
+  - Luf-Mp4: needs cf_clearance cookie (on-device only) — no code change
+- Branch `mkissa-v18` merged to main. The branch is preserved for reference.

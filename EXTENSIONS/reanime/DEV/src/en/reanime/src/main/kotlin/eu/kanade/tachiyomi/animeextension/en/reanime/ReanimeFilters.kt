@@ -29,7 +29,7 @@ object ReanimeFilters {
     }
 
     /** Base class for select-style filters. */
-    private open class SelectFilter(
+    open class SelectFilter(
         name: String,
         values: Array<String>,
     ) : AnimeFilter.Select<String>(name, values)

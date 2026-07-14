@@ -95,6 +95,6 @@ data class FlixServer(
     val serverName: String = "",                    // "HD-1", "HD-2"
     val dataLink: String = "",                      // "https://flixcloud.cc/e/<code>?v=<N>"
     val dataType: String = "",                      // "sub" | "dub"
-    val continue: Boolean = false,
+    @SerialName("continue") val isContinue: Boolean = false,
     val softsub: Boolean = false,
 )

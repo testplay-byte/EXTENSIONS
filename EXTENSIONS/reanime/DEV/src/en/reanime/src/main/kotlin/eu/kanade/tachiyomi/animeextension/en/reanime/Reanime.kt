@@ -44,6 +44,7 @@ class Reanime : ConfigurableAnimeSource, AnimeHttpSource() {
     override val name = "Re:ANIME 180"
     override val baseUrl = "https://reanime.to"
     override val lang = "en"
+    override val supportsLatest = true
 
     private val json = Json { ignoreUnknownKeys = true }
 

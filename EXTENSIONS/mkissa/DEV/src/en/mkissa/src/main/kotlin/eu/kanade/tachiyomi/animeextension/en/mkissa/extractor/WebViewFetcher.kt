@@ -546,7 +546,7 @@ class WebViewFetcher(
                             // Auto-click play after a short delay (let the player initialize)
                             if (autoClickPlay) {
                                 mainHandler.postDelayed({
-                                    view?.evaluateJavascript(PLAY_CLICK_JS, null) { result ->
+                                    view?.evaluateJavascript(PLAY_CLICK_JS) { result ->
                                         MKissaLog.d("WebViewFetcher: play click result: $result")
                                     }
                                 }, 1500)
@@ -567,7 +567,7 @@ class WebViewFetcher(
                 override fun run() {
                     if (videoUrlLatch.count == 0L) return
                     mainHandler.post {
-                        webView?.evaluateJavascript(VIDEO_SRC_POLL_JS, null) { result ->
+                        webView?.evaluateJavascript(VIDEO_SRC_POLL_JS) { result ->
                             val src = parseJsStringResult(result)
                             if (src.isNotBlank() && src.startsWith("http") && foundUrl.compareAndSet("", src)) {
                                 MKissaLog.i("WebViewFetcher: poll found video.src: ${MKissaLog.trunc(src, 100)}")

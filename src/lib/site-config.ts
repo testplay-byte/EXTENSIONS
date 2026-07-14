@@ -88,6 +88,22 @@ export const EXTENSIONS: ExtensionMeta[] = [
     accent: "coral",
     features: ["Catalog + details", "6 video servers", "Server toggle settings", "In progress"],
   },
+  {
+    id: "anidb",
+    name: "AniDB 180",
+    tagline:
+      "Anime streaming extension for anidb.app — catalog, filters, details, episodes + single HLS video server with sub/dub support.",
+    version: "v16.1",
+    build: 1,
+    date: "July 14, 2026",
+    status: "wip",
+    availableBuilds: ["debug"],
+    icon: "/anidb-icon.png",
+    letter: "AD",
+    site: "anidb.app",
+    accent: "lime",
+    features: ["Catalog + filters", "Sub/Dub support", "HLS video playback", "In progress"],
+  },
 ];
 
 // Build the download URL for an extension's APK.

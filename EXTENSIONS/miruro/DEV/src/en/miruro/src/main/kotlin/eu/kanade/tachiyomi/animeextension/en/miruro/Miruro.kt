@@ -7,6 +7,7 @@ import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
+import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -310,6 +311,22 @@ class Miruro : AnimeHttpSource(), ConfigurableAnimeSource {
     override fun getFilterList(): AnimeFilterList = MiruroFilters.FILTER_LIST
 
     // ════════════════════════════════════════════════════════════════════
+    // Seasons (ext-lib 16 — Miruro has no seasons concept; throw)
+    // ════════════════════════════════════════════════════════════════════
+
+    override fun seasonListParse(response: Response): List<SAnime> {
+        throw UnsupportedOperationException("Miruro has no seasons")
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Hoster pipeline (ext-lib 16 — we use the LEGACY videoList(episode) path instead)
+    // ════════════════════════════════════════════════════════════════════
+
+    override fun hosterListParse(response: Response): List<Hoster> {
+        throw UnsupportedOperationException("Miruro uses the legacy videoList(episode) pipeline")
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     // Anime details
     // ════════════════════════════════════════════════════════════════════
 
@@ -595,7 +612,7 @@ class Miruro : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    override fun List<Video>.sort(): List<Video> {
+    override fun List<Video>.sortVideos(): List<Video> {
         val qualityPref = settings.preferredQuality
         val subTypePref = settings.preferredSubType
         val providerName = providerDisplayName(settings.preferredProvider)

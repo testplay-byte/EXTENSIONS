@@ -14,8 +14,8 @@ class MiruroSettings(private val prefs: SharedPreferences) {
         // Mirror selection
         const val PREF_MIRROR_KEY = "preferred_mirror"
         val MIRROR_ENTRIES = arrayOf("miruro.tv", "miruro.to", "miruro.bz", "miruro.ru")
-        val MIRROR_VALUES = MIRROR_ENTRIES.map { "https://www.$it" }.toTypedArray()
-        const val MIRROR_DEFAULT = MIRROR_VALUES[0]   // https://www.miruro.tv
+        val MIRROR_VALUES = arrayOf("https://www.miruro.tv", "https://www.miruro.to", "https://www.miruro.bz", "https://www.miruro.ru")
+        const val MIRROR_DEFAULT = "https://www.miruro.tv"
 
         // Preferred provider (11 native + embed servers)
         const val PREF_PROVIDER_KEY = "preferred_provider"

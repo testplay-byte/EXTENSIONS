@@ -60,7 +60,7 @@ class ReanimeExtractor(
         ReanimeLog.i("extractVideos: fetching servers from $flixUrl")
 
         val flixResponse = try {
-            client.newCall(GET(flixUrl, headers)).use { resp ->
+            client.newCall(GET(flixUrl, headers)).execute().use { resp ->
                 parseFlixResponse(resp)
             }
         } catch (e: Exception) {

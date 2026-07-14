@@ -78,7 +78,7 @@ export const EXTENSIONS: ExtensionMeta[] = [
     tagline:
       "Anime streaming extension for mkissa.to — catalog, details, episodes, metadata enrichment + 6 video servers (3 working).",
     version: "v16.17",
-    build: 20,
+    build: 21,
     date: "June 29, 2027",
     status: "wip",
     availableBuilds: ["debug"],

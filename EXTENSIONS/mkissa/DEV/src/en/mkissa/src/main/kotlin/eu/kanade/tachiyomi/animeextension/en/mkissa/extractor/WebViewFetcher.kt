@@ -530,26 +530,15 @@ class WebViewFetcher(
                 try {
                     webView?.addJavascriptInterface(interceptor, "AndroidVideoInterceptor")
 
-                    // ★ Block popups (ad tabs) — onCreateWindow returns false.
-                    // This prevents the ad popups (window.open) from opening new tabs,
-                    // while letting the calling JS continue. The play button's onclick
-                    // still fires its callback, so the multi-click flow progresses.
-                    webView?.settings?.javaScriptCanOpenWindowsAutomatically = false
+                    // ★ Popup handling: DON'T block via onCreateWindow (returning false
+                    // makes window.open return null, which crashes the player's ad JS).
+                    // Instead: setSupportMultipleWindows(false) → window.open opens in the
+                    // SAME tab → shouldOverrideUrlLoading blocks the ad redirect.
+                    // window.open returns a valid window object (the current window), so the
+                    // ad JS's `F && !F.closed` check passes → ad reported as impression →
+                    // verification flow continues normally.
+                    webView?.settings?.javaScriptCanOpenWindowsAutomatically = true
                     webView?.settings?.setSupportMultipleWindows(false)
-
-                    webView?.webChromeClient = object : android.webkit.WebChromeClient() {
-                        override fun onCreateWindow(
-                            view: WebView?,
-                            isDialog: Boolean,
-                            isUserGesture: Boolean,
-                            resultMsg: android.os.Message?,
-                        ): Boolean {
-                            // Block ALL popup windows (ad redirects). Returning false without
-                            // sending the result message prevents the popup from opening.
-                            MKissaLog.d("WebViewFetcher: blocked popup window (ad redirect)")
-                            return false
-                        }
-                    }
 
                     webView?.webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
@@ -583,9 +572,17 @@ class WebViewFetcher(
                             return true // block
                         }
 
+                        override fun onPageStarted(view: WebView?, startedUrl: String?, favicon: android.graphics.Bitmap?) {
+                            MKissaLog.d("WebViewFetcher: interceptVideoUrl page started: $startedUrl")
+                            // ★ Inject the JS monkey-patch EARLY (onPageStarted) so it's in
+                            // place before the page's JS calls crypto.subtle.decrypt.
+                            // Re-injected in onPageFinished for safety.
+                            view?.evaluateJavascript(VIDEO_INTERCEPTOR_JS, null)
+                        }
+
                         override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                             MKissaLog.d("WebViewFetcher: interceptVideoUrl page loaded: $loadedUrl")
-                            // Inject the JS monkey-patch to scan API responses + capture video.src
+                            // Re-inject the JS monkey-patch (in case onPageStarted's was too early)
                             view?.evaluateJavascript(VIDEO_INTERCEPTOR_JS, null)
 
                             // ★ Start the multi-click flow
@@ -628,7 +625,7 @@ class WebViewFetcher(
             }
         }
 
-        // Cleanup: remove the JS interface + restore default clients
+        // Cleanup: remove the JS interface + restore default WebViewClient
         mainHandler.post {
             webView?.removeJavascriptInterface("AndroidVideoInterceptor")
             webView?.webViewClient = object : WebViewClient() {
@@ -636,7 +633,6 @@ class WebViewFetcher(
                     MKissaLog.d("WebViewFetcher: page loaded: $url")
                 }
             }
-            webView?.webChromeClient = null
         }
 
         val result = foundUrl.get()

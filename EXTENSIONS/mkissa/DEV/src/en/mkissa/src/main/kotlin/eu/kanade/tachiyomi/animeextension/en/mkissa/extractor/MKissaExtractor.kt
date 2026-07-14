@@ -412,17 +412,18 @@ class MKissaExtractor(
 
     /** Vn-Hls (vidnest.io) extractor — POST /dl → direct MP4 URLs.
      *
-     * The vidnest.io embed page has a form that POSTs to /dl with the file code.
-     * The response HTML contains direct MP4 URLs at different qualities.
+     * ★ v21: vidnest.io is behind Cloudflare. OkHttp gets the CF challenge page
+     * (not the video URLs). Fix: try OkHttp first, then fall back to WebView
+     * interception (the WebView's Chrome TLS stack + cookie jar bypasses CF).
      */
     private suspend fun extractVidnest(url: String, name: String): List<Video> {
-        return try {
-            val httpUrl = url.toHttpUrl()
-            val host = httpUrl.host
-            val code = httpUrl.pathSegments.lastOrNull { it.isNotEmpty() } ?: return emptyList()
-            MKissaLog.d("extractVidnest: host=$host, code=$code")
+        val httpUrl = url.toHttpUrl()
+        val host = httpUrl.host
+        val code = httpUrl.pathSegments.lastOrNull { it.isNotEmpty() } ?: return emptyList()
+        MKissaLog.d("extractVidnest: host=$host, code=$code")
 
-            // POST to /dl to get the download page with video URLs
+        // Fast path: try OkHttp POST /dl
+        try {
             val postBody = "op=embed&file_code=$code&auto=1&referer="
             val vidnestHeaders = headers.newBuilder()
                 .set("Referer", url)
@@ -440,31 +441,53 @@ class MKissaExtractor(
             val body = response.use { it.body?.string().orEmpty() }
             MKissaLog.d("extractVidnest: response HTTP ${response.code}, body length=${body.length}")
 
-            if (body.isBlank()) {
-                MKissaLog.w("extractVidnest: empty response")
-                return emptyList()
-            }
-
-            // Search for MP4 URLs in the response HTML
-            val videoUrls = Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(body).map { it.value }.toList()
-            if (videoUrls.isEmpty()) {
-                MKissaLog.w("extractVidnest: no MP4 URLs found in response")
-                return emptyList()
-            }
-
-            MKissaLog.i("extractVidnest: found ${videoUrls.size} video URLs")
-            val vnHeaders = headers.newBuilder().set("Referer", "https://$host/").build()
-            videoUrls.map { videoUrl ->
-                // Try to extract quality from the URL or surrounding text
-                val quality = if (videoUrl.contains("_x/")) "1080p" else if (videoUrl.contains("_o/")) "720p" else "Unknown"
-                Video(
-                    videoUrl = videoUrl,
-                    videoTitle = "$name - $quality",
-                    headers = vnHeaders,
-                )
+            // Check for Cloudflare challenge (OkHttp can't bypass it)
+            if (body.contains("challenge-platform") || body.contains("cf-challenge") || body.contains("__CF$cv$params")) {
+                MKissaLog.w("extractVidnest: Cloudflare challenge detected — falling back to WebView")
+            } else if (body.isNotBlank()) {
+                // Search for MP4 URLs in the response HTML
+                val videoUrls = Regex("""https?://[^"'\s<>]+\.mp4[^"'\s<>]*""").findAll(body).map { it.value }.toList()
+                if (videoUrls.isNotEmpty()) {
+                    MKissaLog.i("extractVidnest: found ${videoUrls.size} video URLs via OkHttp")
+                    val vnHeaders = headers.newBuilder().set("Referer", "https://$host/").build()
+                    return videoUrls.map { videoUrl ->
+                        val quality = if (videoUrl.contains("_x/")) "1080p" else if (videoUrl.contains("_o/")) "720p" else "Unknown"
+                        Video(videoUrl = videoUrl, videoTitle = "$name - $quality", headers = vnHeaders)
+                    }
+                }
+                MKissaLog.w("extractVidnest: no MP4 URLs in OkHttp response")
             }
         } catch (e: Exception) {
-            MKissaLog.e("extractVidnest: failed for $name — ${e.message}", e)
+            MKissaLog.w("extractVidnest: OkHttp failed — ${e.message} — falling back to WebView")
+        }
+
+        // Fallback: WebView interception (bypasses Cloudflare via Chrome's TLS stack)
+        if (webViewFetcher == null) {
+            MKissaLog.w("extractVidnest: WebViewFetcher not available. Skipping $name.")
+            return emptyList()
+        }
+
+        return try {
+            MKissaLog.i("extractVidnest: using interceptVideoUrl (WebView) for $url")
+            val videoSrc = webViewFetcher.interceptVideoUrl(
+                url = url,
+                timeoutMs = 30_000,
+                autoClickPlay = false, // vidnest auto-loads (no play button needed)
+                maxClicks = 1,
+                clickIntervalMs = 2000,
+            )
+
+            if (videoSrc.isBlank() || !videoSrc.startsWith("http")) {
+                MKissaLog.w("extractVidnest: no video URL intercepted")
+                return emptyList()
+            }
+
+            MKissaLog.i("extractVidnest: intercepted video URL: ${MKissaLog.trunc(videoSrc, 80)}")
+            val vnHeaders = headers.newBuilder().set("Referer", "https://$host/").build()
+            val quality = if (videoSrc.contains("_x/")) "1080p" else if (videoSrc.contains("_o/")) "720p" else "Unknown"
+            listOf(Video(videoUrl = videoSrc, videoTitle = "$name - $quality", headers = vnHeaders))
+        } catch (e: Exception) {
+            MKissaLog.e("extractVidnest: WebView failed for $name — ${e.message}", e)
             emptyList()
         }
     }

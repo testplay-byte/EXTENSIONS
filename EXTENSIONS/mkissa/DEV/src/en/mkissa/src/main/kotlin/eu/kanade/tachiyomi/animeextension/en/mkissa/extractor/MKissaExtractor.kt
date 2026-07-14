@@ -442,7 +442,7 @@ class MKissaExtractor(
             MKissaLog.d("extractVidnest: response HTTP ${response.code}, body length=${body.length}")
 
             // Check for Cloudflare challenge (OkHttp can't bypass it)
-            if (body.contains("challenge-platform") || body.contains("cf-challenge") || body.contains("__CF$cv$params")) {
+            if (body.contains("challenge-platform") || body.contains("cf-challenge") || body.contains("__CF" + "\$" + "cv" + "\$" + "params")) {
                 MKissaLog.w("extractVidnest: Cloudflare challenge detected — falling back to WebView")
             } else if (body.isNotBlank()) {
                 // Search for MP4 URLs in the response HTML

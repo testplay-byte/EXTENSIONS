@@ -50,6 +50,10 @@ jobs:
         working-directory: EXTENSIONS/mkissa/DEV
         run: ./gradlew :src:en:mkissa:assembleDebug --no-daemon --stacktrace
 
+      - name: Build AniDB (debug)
+        working-directory: EXTENSIONS/anidb/DEV
+        run: ./gradlew :src:en:anidb:assembleDebug --no-daemon --stacktrace
+
       - name: Collect APKs
         run: |
           mkdir -p artifacts

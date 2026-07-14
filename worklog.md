@@ -3721,3 +3721,49 @@ Stage Summary:
 - ★ Documented the video pipeline: proxy (vault01/02 + FNV-1a + XOR(PROXY_KEY)), embed routing (MegaCloud/RapidCloud/OmniEmbed), HLS via M3u8Integration.
 - ⏳ Awaiting user verification of the corrected analysis. Next: Step 1.5 (video stream capture methods per provider) → Step 2-5 (build).
 - Honest status: reference-verified (yuzono working extension) for all architecture claims. Live-verified CF managed challenge. NOT live-verified: the actual sources response for ep 1 of 185542 (CF blocks curl; on-device verification during Step 4).
+
+---
+Task ID: mkissa-v20
+Agent: Main Agent (Z.ai Code)
+Task: Fix failing servers based on user's on-device testing data (actual video URLs provided)
+
+Work Log:
+- User tested all servers on-device and provided ACTUAL video URLs their download manager detected:
+  * Fm-Hls: https://edge1-madrid-sprintcdn.r66nv9ed.com/hls2/.../index-v1-a1.m3u8 (JW Player 8.32.1, after multi-click + "Loading your player")
+  * Uni: https://allanime.uns.bio/hlsmod/.../index-f2-v1-a1.m3u8 (1080p) + index-f1-v1-a1.m3u8 (720p) + thumbnail.vtt
+  * Mp4: https://a4.mp4upload.com:183/d/.../video.mp4 (direct download URL)
+  * Ok: DASH .mpd + .m4s segments (38 files, multiple qualities)
+  * Ak: https://allanime.day/apiak/sk.json (internal hoster, same /apivtwo/clock endpoint as Luf-Mp4)
+  * Vn-Hls: had loading issues on-device (archive for later)
+
+- Root cause analysis:
+  1. Mp4: mp4upload.com now redirects OkHttp to login page (requires cookies). The embed page is inaccessible without a browser cookie jar. The JsUnpacker approach fails because it gets the login page, not the embed page.
+  2. looksLikeVideoUrl BUG: excluded ALL mp4upload.com URLs (`!lower.contains("mp4upload.com")`), which blocked the actual video URL (a4.mp4upload.com:183/d/.../video.mp4). Even if interceptVideoUrl captured it, the filter would reject it.
+  3. Ak server: new internal hoster (same /apivtwo/clock endpoint as Luf-Mp4). Was not in SERVER_NAMES, but since it's internal (URL starts with /apivtwo/), it was already dispatched to extractInternal. However, it wasn't in the settings UI or preferred server dropdown.
+  4. Vn-Hls: confirmed working via API test (POST /dl returns MP4 URLs from fs6.vidnest.live). Server-side loading issues on-device — not our code's fault.
+
+- Fixes implemented:
+  1. Mp4 extractor: rewrote to try OkHttp+JsUnpacker first (fast path), then fall back to interceptVideoUrl (WebView) when OkHttp gets login redirect. The WebView has a cookie jar and can load the embed page; the player JS fetches the video URL which we intercept.
+  2. looksLikeVideoUrl: removed the mp4upload.com exclusion. The actual video URL (a4.mp4upload.com:183/.../video.mp4) is now properly captured. Also added .mpd support for DASH streams.
+  3. Ak server: added to SERVER_NAMES (6→7), settings UI, preferred server dropdown, and server priority list. Settings migration updated to reset when server count changes.
+  4. Server priority list: added "ak" to the sorting order.
+
+- versionCode 19→20, versionName stays 16.17.
+- CI: ✅ passed (all extensions compile including MKissa v16.20).
+- Release v1.3.0: ✅ all steps passed (AniKoto signed, AnimePahe signed, MKissa debug, AniDB debug, Re:ANIME debug, GitHub Release created, Pages redeploy triggered).
+- Download links verified: MKissa = 288,517 bytes. Live page shows Build 20.
+
+Stage Summary:
+- ★ MKissa v16.20 (build 20) released with fixes for Mp4 + Ak server + video URL filter.
+- ★ The Mp4 extractor now uses WebView interception as fallback (handles mp4upload's login requirement).
+- ★ The looksLikeVideoUrl filter no longer blocks mp4upload.com video URLs.
+- ★ Ak server added to settings + extractor (it's an internal hoster, already handled by extractInternal).
+- ★ Release v1.3.0: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.3.0
+- ★ Download page: https://testplay-byte.github.io/EXTENSIONS/ — MKissa shows Build 20.
+- HONEST STATUS — needs on-device testing:
+  - Mp4: should now work via WebView interception (mp4upload embed loads with cookies, player JS fetches video URL, we intercept it). The looksLikeVideoUrl fix ensures the URL isn't filtered out.
+  - Fm-Hls + Uni: interceptVideoUrl with multi-click + popup blocking + crypto.subtle interception. The approach is architecturally correct but needs on-device verification.
+  - Ok: unchanged (already working).
+  - Vn-Hls: unchanged (server-side issues, archive for later).
+  - Ak: internal hoster, same as Luf-Mp4 (should work if Luf-Mp4 works).
+  - Luf-Mp4: needs cf_clearance (on-device only).

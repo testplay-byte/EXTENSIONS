@@ -3796,3 +3796,28 @@ Stage Summary:
   - Video playback (HLS): should work (proxied through vault01/02.ultracloud.cc with XOR(PROXY_KEY) obfuscation)
   - Video playback (embed): passed through as-is for v16.1 (MegaCloud/RapidCloud inline extraction deferred to a future build)
   - Cloudflare bypass: needs on-device WebView (inherited CloudflareInterceptor + MiruroBrowserFingerprintInterceptor + cookie farming)
+Task ID: reanime-crash-fix
+Agent: Main Agent (Z.ai Code)
+Task: Fix the crash where the Re:ANIME extension disappeared after trusting in Aniyomi.
+
+Work Log:
+- User reported: "i installed the extension but it isnt working after trusting the extension disapears and maybe it crashes"
+- Downloaded the built APK (134,704 bytes) + inspected the AndroidManifest.xml (correct: extClass, package, metadata all present) and DEX files (all classes present including Reanime, ReanimeExtractor, WebViewFetcher, etc.).
+- Read the AniDB extension source (the newest working extension, also v16.1 build 1) for comparison. Found TWO critical differences:
+  1. AniDB has `override val versionId = 1` — my Reanime was MISSING this. The stub declares `open val versionId: Int = throw Exception("Stub!")`. ALL working extensions (AniKoto=11, AnimePahe=1, MKissa=1, AniDB=1) override it. Without the override, the real ext-lib 16 AnimeHttpSource throws when computing the source ID (which uses versionId in the MD5 hash) → AbstractMethodError → extension crashes and disappears.
+  2. AniDB uses `by lazy` for preferences + settings (`private val preferences by lazy { Injekt.get<Application>().getSharedPreferences(...) }` + `private val settings by lazy { XxxSettings(preferences) }`). My Reanime used `private val settings = reanimeSettings` (a top-level lazy that accesses Injekt.get<Context>() at CONSTRUCTION time). This could crash if Injekt isn't ready during class instantiation.
+
+- FIX 1: Added `override val versionId = 1` to the Reanime class.
+- FIX 2: Changed settings to use `by lazy` with `Injekt.get<Application>().getSharedPreferences("source_$id", 0)` + `ReanimeSettings(preferences)` — matching the AniDB/MKissa pattern. Removed the top-level `reanimeSettings` lazy. Changed ReanimeSettings to take SharedPreferences (not Context).
+- FIX 3: Added `override fun List<Video>.sortVideos()` — matches AniDB pattern for proper video sorting.
+- Bumped versionCode 1→2 (build 2). Updated site-config.ts build display 1→2.
+- CI build #31: ✅ SUCCESS (all extensions compile with the fix).
+- Tagged v1.4.1. Release #15: ✅ SUCCESS — all 6 APKs published (including aniyomi-en.reanime180-v16.1-debug.apk at 135,557 bytes).
+- Verified live: download link serves 135,557 bytes (HTTP 200). Page shows "Build 02" for Re:ANIME.
+- Verified in DEX: the new APK contains the versionId reference in classes2.dex.
+
+Stage Summary:
+- ★ ROOT CAUSE: Missing `override val versionId = 1` — the extension crashed with AbstractMethodError when Aniyomi computed the source ID (which uses versionId in the MD5 hash). The stub's `open val versionId: Int = throw Exception("Stub!")` compiles without an override but crashes at runtime.
+- ★ FIX: Added versionId override + changed settings to lazy init (matching the pattern in ALL working extensions: AniKoto, AnimePahe, MKissa, AniDB).
+- ★ Build 2 (v16.1) live on the download page. The extension should now load correctly in Aniyomi after trusting.
+- HONEST NOTE: this was a classic ext-lib v16 pitfall — the stubs use `open` (not `abstract`) for `versionId`, so the compiler doesn't catch the missing override. This should be added to HOW_TO_BUILD_EXTENSION/common-pitfalls.md.

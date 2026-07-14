@@ -13,6 +13,7 @@
 | **AnimePahe 180** | [`EXTENSIONS/animepahe/`](../EXTENSIONS/animepahe/) | `en` | ✅ All features working | v16.10 (Build 10, versionCode 10, versionId 1) | animepahe.pw | `...en.animepahe.AnimePahe` |
 | **MKissa 180** | [`EXTENSIONS/mkissa/`](../EXTENSIONS/mkissa/) | `en` | 🚧 In progress (3/6 video servers working) | v16.17 (Build 17, versionCode 17, versionId 1) | mkissa.to | `...en.mkissa.MKissa` |
 | **AniDB 180** | [`EXTENSIONS/anidb/`](../EXTENSIONS/anidb/) | `en` | 🚧 In progress (initial build, debug only) | v16.1 (Build 1, versionCode 1, versionId 1) | anidb.app | `...en.anidb.AniDB` |
+| **Re:ANIME 180** | [`EXTENSIONS/reanime/`](../EXTENSIONS/reanime/) | `en` | 🚧 In progress (initial build) | v16.1 (Build 1, versionCode 1, versionId 1) | reanime.to | `...en.reanime.Reanime` |
 
 ## Status legend
 
@@ -30,6 +31,7 @@ Each extension has an `EXTENSION.md` at its folder root — the single file to r
 - AnimePahe → [`EXTENSIONS/animepahe/EXTENSION.md`](../EXTENSIONS/animepahe/EXTENSION.md)
 - MKissa → [`EXTENSIONS/mkissa/EXTENSION.md`](../EXTENSIONS/mkissa/EXTENSION.md)
 - AniDB → [`EXTENSIONS/anidb/EXTENSION.md`](../EXTENSIONS/anidb/EXTENSION.md)
+- Re:ANIME → [`EXTENSIONS/reanime/EXTENSION.md`](../EXTENSIONS/reanime/EXTENSION.md)
 
 ## ★ How to build a new extension
 

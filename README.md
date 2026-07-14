@@ -13,6 +13,8 @@
 | **AniKoto 180** | anikototv.to | ✅ Stable | v16.9 (build 9) |
 | **AnimePahe 180** | animepahe.pw | ✅ Stable | v16.10 (build 10) |
 | **MKissa 180** | mkissa.to | 🚧 In progress | v16.17 (build 17) |
+| **AniDB 180** | anidb.app | 🚧 In progress | v16.1 (build 1) |
+| **Re:ANIME 180** | reanime.to | 🚧 In progress | v16.1 (build 1) |
 
 Each extension is an Aniyomi anime source built against **ext-lib v16**. Install the APK from
 Aniyomi's extension manager, or download it directly from the [releases page](https://github.com/testplay-byte/EXTENSIONS/releases/latest).
@@ -26,6 +28,8 @@ EXTENSIONS/
 ├── anikoto/        ← AniKoto 180 (Gradle project + per-ext knowledge base)
 ├── animepahe/      ← AnimePahe 180
 ├── mkissa/         ← MKissa 180 (in progress)
+├── anidb/          ← AniDB 180 (in progress)
+├── reanime/        ← Re:ANIME 180 (in progress)
 ├── _template/      ← scaffold for new extensions
 └── HOW_TO_BUILD_EXTENSION/   ← step-by-step build guide
 MEMORY/             ← project-level knowledge base (rules, guides, decisions, research)

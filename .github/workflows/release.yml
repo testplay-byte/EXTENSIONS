@@ -89,6 +89,11 @@ jobs:
         working-directory: EXTENSIONS/anidb/DEV
         run: ./gradlew :src:en:anidb:assembleDebug --no-daemon --stacktrace
 
+      # ── Re:ANIME: debug only (no release keystore yet) ──
+      - name: Build Re:ANIME (debug)
+        working-directory: EXTENSIONS/reanime/DEV
+        run: ./gradlew :src:en:reanime:assembleDebug --no-daemon --stacktrace
+
       - name: Collect & list APKs
         id: collect
         run: |

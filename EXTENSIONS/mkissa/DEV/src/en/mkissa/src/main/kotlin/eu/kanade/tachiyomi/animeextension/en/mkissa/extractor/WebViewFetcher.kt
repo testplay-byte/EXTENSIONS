@@ -544,9 +544,9 @@ class WebViewFetcher(
                             isUserGesture: Boolean,
                             resultMsg: android.os.Message?,
                         ): Boolean {
-                            // Block ALL popup windows (ad redirects)
+                            // Block ALL popup windows (ad redirects). Returning false without
+                            // sending the result message prevents the popup from opening.
                             MKissaLog.d("WebViewFetcher: blocked popup window (ad redirect)")
-                            resultMsg?.target?.sendToTarget()
                             return false
                         }
                     }

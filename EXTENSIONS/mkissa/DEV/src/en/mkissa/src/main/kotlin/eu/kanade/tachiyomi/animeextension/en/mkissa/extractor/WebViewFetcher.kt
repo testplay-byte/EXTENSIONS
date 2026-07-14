@@ -491,20 +491,25 @@ class WebViewFetcher(
      * regardless.
      *
      * @param url The player page URL
-     * @param timeoutMs How long to wait for a video URL (default 30s)
+     * @param timeoutMs How long to wait for a video URL (default 45s)
      * @param autoClickPlay Whether to auto-click the play button (default true)
+     * @param maxClicks Max number of play-button clicks (default 6 — handles the multi-click ad flow)
+     * @param clickIntervalMs Delay between clicks (default 2.5s — gives ads time to process)
      * @return The video URL (http .m3u8 or .mp4), or empty string if not found
      */
     fun interceptVideoUrl(
         url: String,
-        timeoutMs: Long = 30_000,
+        timeoutMs: Long = 45_000,
         autoClickPlay: Boolean = true,
+        maxClicks: Int = 6,
+        clickIntervalMs: Long = 2500,
     ): String {
         ensureWebView()
-        MKissaLog.i("WebViewFetcher: interceptVideoUrl — loading $url")
+        MKissaLog.i("WebViewFetcher: interceptVideoUrl — loading $url (maxClicks=$maxClicks, interval=${clickIntervalMs}ms)")
 
         val videoUrlLatch = CountDownLatch(1)
         val foundUrl = AtomicReference("")
+        val clickCount = java.util.concurrent.atomic.AtomicInteger(0)
 
         /** JS interface — the injected JS calls this when it finds a video URL. */
         class VideoInterceptor {
@@ -525,6 +530,27 @@ class WebViewFetcher(
                 try {
                     webView?.addJavascriptInterface(interceptor, "AndroidVideoInterceptor")
 
+                    // ★ Block popups (ad tabs) — onCreateWindow returns false.
+                    // This prevents the ad popups (window.open) from opening new tabs,
+                    // while letting the calling JS continue. The play button's onclick
+                    // still fires its callback, so the multi-click flow progresses.
+                    webView?.settings?.javaScriptCanOpenWindowsAutomatically = false
+                    webView?.settings?.setSupportMultipleWindows(false)
+
+                    webView?.webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onCreateWindow(
+                            view: WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?,
+                        ): Boolean {
+                            // Block ALL popup windows (ad redirects)
+                            MKissaLog.d("WebViewFetcher: blocked popup window (ad redirect)")
+                            resultMsg?.target?.sendToTarget()
+                            return false
+                        }
+                    }
+
                     webView?.webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
                             view: WebView?,
@@ -538,18 +564,33 @@ class WebViewFetcher(
                             return null // let the request proceed normally
                         }
 
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): Boolean {
+                            val reqUrl = request?.url?.toString() ?: ""
+                            // ★ Block ad redirects (navigation away from the player page).
+                            // Only allow the original player URL + same-origin + data: + about:
+                            val playerOrigin = url.substringBefore("#").substringBefore("/", "")
+                            if (reqUrl.startsWith(url.substringBefore("#")) ||
+                                reqUrl.startsWith("data:") ||
+                                reqUrl.startsWith("about:") ||
+                                reqUrl.startsWith(playerOrigin)
+                            ) {
+                                return false // allow
+                            }
+                            MKissaLog.d("WebViewFetcher: blocked redirect to: ${MKissaLog.trunc(reqUrl, 80)}")
+                            return true // block
+                        }
+
                         override fun onPageFinished(view: WebView?, loadedUrl: String?) {
                             MKissaLog.d("WebViewFetcher: interceptVideoUrl page loaded: $loadedUrl")
                             // Inject the JS monkey-patch to scan API responses + capture video.src
                             view?.evaluateJavascript(VIDEO_INTERCEPTOR_JS, null)
 
-                            // Auto-click play after a short delay (let the player initialize)
+                            // ★ Start the multi-click flow
                             if (autoClickPlay) {
-                                mainHandler.postDelayed({
-                                    view?.evaluateJavascript(PLAY_CLICK_JS) { result ->
-                                        MKissaLog.d("WebViewFetcher: play click result: $result")
-                                    }
-                                }, 1500)
+                                startMultiClickFlow(view, clickCount, maxClicks, clickIntervalMs, videoUrlLatch)
                             }
                         }
                     }
@@ -587,7 +628,7 @@ class WebViewFetcher(
             }
         }
 
-        // Cleanup: remove the JS interface + restore default WebViewClient
+        // Cleanup: remove the JS interface + restore default clients
         mainHandler.post {
             webView?.removeJavascriptInterface("AndroidVideoInterceptor")
             webView?.webViewClient = object : WebViewClient() {
@@ -595,11 +636,48 @@ class WebViewFetcher(
                     MKissaLog.d("WebViewFetcher: page loaded: $url")
                 }
             }
+            webView?.webChromeClient = null
         }
 
         val result = foundUrl.get()
         MKissaLog.i("WebViewFetcher: interceptVideoUrl DONE, url=${MKissaLog.trunc(result, 100)}")
         return result
+    }
+
+    /**
+     * ★ Multi-click flow: clicks the play button repeatedly with delays.
+     *
+     * This handles players (Uni, Fm-Hls) that require multiple clicks:
+     * - Click 1-2: trigger ad popups (blocked by onCreateWindow) + "Verifying human..."
+     * - Click 3+: verification completes → video URL loads
+     * - For Fm-Hls: "Loading your player" → second play button appears → click it
+     *
+     * Stops early if videoUrlLatch reaches 0 (video URL found).
+     */
+    private fun startMultiClickFlow(
+        view: WebView?,
+        clickCount: java.util.concurrent.atomic.AtomicInteger,
+        maxClicks: Int,
+        intervalMs: Long,
+        latch: CountDownLatch,
+    ) {
+        val clickRunnable = object : Runnable {
+            override fun run() {
+                if (latch.count == 0L) return
+                val n = clickCount.incrementAndGet()
+                if (n > maxClicks) return
+
+                view?.evaluateJavascript(PLAY_CLICK_JS) { result ->
+                    MKissaLog.d("WebViewFetcher: multi-click $n/$maxClicks result: $result")
+                }
+
+                if (latch.count > 0 && n < maxClicks) {
+                    mainHandler.postDelayed(this, intervalMs)
+                }
+            }
+        }
+        // First click after 1.5s (let the player initialize)
+        mainHandler.postDelayed(clickRunnable, 1500)
     }
 
     /** Check if a URL looks like a playable video stream. */
@@ -614,7 +692,7 @@ class WebViewFetcher(
         }
     }
 
-    /** JS injected on page load — monkey-patches fetch/XHR to scan responses for video URLs. */
+    /** JS injected on page load — monkey-patches fetch/XHR/crypto.subtle to scan for video URLs. */
     private val VIDEO_INTERCEPTOR_JS = """
         (function() {
             // ★ Monkey-patch fetch — scan JSON/text responses for .m3u8 / .mp4 URLs
@@ -640,6 +718,22 @@ class WebViewFetcher(
                 });
                 return origSend.apply(this, arguments);
             };
+
+            // ★ Monkey-patch crypto.subtle.decrypt — scan the decrypted result for video URLs.
+            // This is critical for Uni: the /api/v1/info response is AES-CBC encrypted,
+            // and the decrypted plaintext contains the m3u8 URL. Without this, we'd miss it.
+            if (window.crypto && window.crypto.subtle && window.crypto.subtle.decrypt) {
+                var origDecrypt = window.crypto.subtle.decrypt.bind(window.crypto.subtle);
+                window.crypto.subtle.decrypt = function(algo, key, data) {
+                    return origDecrypt(algo, key, data).then(function(result) {
+                        try {
+                            var text = new TextDecoder().decode(result);
+                            scanForVideoUrl(text);
+                        } catch(e) {}
+                        return result;
+                    });
+                };
+            }
 
             // ★ Scan a text body for m3u8/mp4 URLs and report them
             function scanForVideoUrl(body) {
@@ -670,18 +764,27 @@ class WebViewFetcher(
         })();
     """.trimIndent()
 
-    /** JS to click the play button — works with Vidstack, JW Player, video.js, and custom players. */
+    /** JS to click the play button — works with Vidstack, JW Player, video.js, Filemoon, and custom players.
+     *  Tries multiple selectors including the Filemoon "Loading your player" second play button. */
     private val PLAY_CLICK_JS = """
         (function() {
             var selectors = [
                 'media-play-button', '.vds-play-button', '[data-play]',
                 '.play-button', 'button[aria-label*="play" i]',
                 '.jw-icon-playback', '.vjs-play-button', '.plyr__control--overlaid',
-                '#vid_play', '#desk button', '#desk'
+                '#vid_play', '#desk button', '#desk',
+                '.video-page__player', '.video-page__placeholder',
+                '.jw8-player-shell', '[class*=play-button]', '[class*=PlayButton]',
+                'button[class*=play]', 'div[class*=play][role=button]'
             ];
             for (var i = 0; i < selectors.length; i++) {
-                var el = document.querySelector(selectors[i]);
-                if (el) { try { el.click(); } catch(e) {} return 'clicked: ' + selectors[i]; }
+                var els = document.querySelectorAll(selectors[i]);
+                for (var j = 0; j < els.length; j++) {
+                    var el = els[j];
+                    if (el.offsetParent !== null || el.getClientRects().length > 0) {
+                        try { el.click(); return 'clicked: ' + selectors[i]; } catch(e) {}
+                    }
+                }
             }
             var v = document.querySelector('video');
             if (v) { try { v.play(); } catch(e) {} v.click(); return 'clicked video'; }

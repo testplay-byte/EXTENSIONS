@@ -248,16 +248,37 @@ class MKissaExtractor(
                 }
             }
 
-            // ★ Sort: preferred server first, then by quality, then by audio type
-            val sortedVideos = if (preferredServer.isNotBlank()) {
-                allVideos.sortedWith(
-                    compareByDescending<Video> { it.videoTitle.contains(preferredServer, true) }
-                        .thenByDescending { it.videoTitle.contains("1080", true) }
-                        .thenByDescending { it.videoTitle.contains("720", true) }
-                )
-            } else {
-                allVideos.sortedByDescending { it.videoTitle.contains("1080", true) }
+            // ★ Sort videos in a clear, organized order:
+            // 1. Preferred server first (if set)
+            // 2. Then by server priority (Ok > Mp4 > Vn-Hls > Fm-Hls > Uni > Luf-Mp4)
+            // 3. Then by quality (1080p > 720p > 480p > 360p > unknown)
+            val serverPriority = listOf("ok", "mp4", "vn-hls", "fm-hls", "uni", "luf-mp4")
+            val qualityOrder = listOf("1080", "720", "480", "360", "240", "144")
+
+            fun serverRank(title: String): Int {
+                val lower = title.lowercase()
+                // Check if the title contains a known server name
+                for ((i, name) in serverPriority.withIndex()) {
+                    if (lower.contains(name) || lower.contains(name.replace("-", ""))) return i
+                }
+                return serverPriority.size // unknown servers go last
             }
+
+            fun qualityRank(title: String): Int {
+                val lower = title.lowercase()
+                for ((i, q) in qualityOrder.withIndex()) {
+                    if (lower.contains("${q}p")) return i
+                }
+                return qualityOrder.size // unknown quality goes last
+            }
+
+            val sortedVideos = allVideos.sortedWith(
+                compareBy<Video> {
+                    // Preferred server first (0 if preferred, 1 if not)
+                    if (preferredServer.isNotBlank() && it.videoTitle.contains(preferredServer, true)) 0 else 1
+                }.thenBy { serverRank(it.videoTitle) }
+                    .thenBy { qualityRank(it.videoTitle) },
+            )
 
             MKissaLog.i("MKissaExtractor: total ${sortedVideos.size} videos from all servers (preferred=$preferredServer)")
             sortedVideos
@@ -636,8 +657,10 @@ class MKissaExtractor(
                 MKissaLog.i("extractFilemoon: OkHttp failed (HTTP 405) — using interceptVideoUrl (network capture)")
                 val videoSrc = webViewFetcher.interceptVideoUrl(
                     url = embedUrl,
-                    timeoutMs = 25_000,
+                    timeoutMs = 45_000, // Fm-Hls needs time (multi-click + "Loading your player" + second play button)
                     autoClickPlay = true,
+                    maxClicks = 8, // Fm-Hls: click → popup → click → popup → click → "Loading" → second play button → video
+                    clickIntervalMs = 2500, // 2.5s between clicks (Fm-Hls has a loading step)
                 )
                 if (videoSrc.isNotBlank() && videoSrc.startsWith("http")) {
                     MKissaLog.i("extractFilemoon: found video URL via loadAndExtractVideo: ${MKissaLog.trunc(videoSrc, 80)}")
@@ -962,8 +985,10 @@ class MKissaExtractor(
             MKissaLog.i("extractUni: using interceptVideoUrl (network capture) for $url")
             val videoSrc = webViewFetcher.interceptVideoUrl(
                 url = url,
-                timeoutMs = 35_000,
+                timeoutMs = 50_000, // Uni needs more time (3+ clicks + "Verifying human..." + ad processing)
                 autoClickPlay = true,
+                maxClicks = 8, // Uni: click → popup → click → popup → click → verify → video loads (up to 8 clicks to be safe)
+                clickIntervalMs = 2000, // 2s between clicks (lets ads + verification process)
             )
 
             if (videoSrc.isBlank() || !videoSrc.startsWith("http")) {

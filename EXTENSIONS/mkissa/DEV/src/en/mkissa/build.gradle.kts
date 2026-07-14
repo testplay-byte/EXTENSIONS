@@ -14,7 +14,7 @@ android {
         // applicationId ≠ source package → must use FULL extClass path (no leading dot).
         // See HOW_TO_BUILD_EXTENSION/common-pitfalls.md §extClass.
         val extClass = "eu.kanade.tachiyomi.animeextension.en.mkissa.MKissa"
-        val extVersionCode = 18  // v16.18 (build 18: interceptVideoUrl — network capture for Fm-Hls + Uni)
+        val extVersionCode = 19  // v16.19 (build 19: multi-click ad flow + popup blocking + crypto.subtle interception + server ordering)
         val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
                                 // The source id = MD5("mkissa 180/en/$extVersionId"). NEVER change after publish.
         val isNsfw = false

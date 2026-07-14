@@ -193,22 +193,21 @@ class Reanime : ConfigurableAnimeSource, AnimeHttpSource() {
     }
 
     override fun episodeListParse(response: Response): List<SEpisode> {
+        // ★ Fallback: only called by forks that don't use getEpisodeList().
+        // Without the anilist_id (which requires the anime's thumbnail_url),
+        // video extraction won't work. Standard Aniyomi/Animiru uses
+        // getEpisodeList() which encodes the anilist_id in the episode URL.
+        val animeId = extractAnimeIdFromUrl(response.request.url.toString())
         val result = response.parseJson<EpisodesResponse>()
         if (result.data.isEmpty()) return emptyList()
 
-        // Extract anilist_id from the thumbnail_url (bx<id> pattern in AniList CDN URLs)
-        // This is needed for /api/flix/<anilist_id>/<ep>
-        val animeId = extractAnimeIdFromUrl(response.request.url.toString())
-
+        val audioType = settings.preferredAudio
         return result.data.map { ep ->
             SEpisode.create().apply {
                 episode_number = ep.episode_number.toFloat()
                 name = formatEpisodeName(ep)
                 scanlator = buildScanlator(ep)
-                // ★ Encode metadata in the episode URL for getHosterList:
-                // /watch/<anime_id>?ep=<N>&lang=<sub|dub>#<anilist_id>
-                val audioType = settings.preferredAudio // "sub" or "dub"
-                url = "/watch/$animeId?ep=${ep.episode_number}&lang=$audioType#$animeId"
+                url = "/watch/$animeId?ep=${ep.episode_number}&lang=$audioType"
                 date_upload = parseDate(ep.aired)
             }
         }.sortedByDescending { it.episode_number }

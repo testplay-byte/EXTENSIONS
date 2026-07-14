@@ -28,9 +28,15 @@ object ReanimeFilters {
         list.toTypedArray()
     }
 
-    class YearFilter : AnimeFilter.List<String>("Year", YEARS)
-    class SeasonFilter : AnimeFilter.List<String>("Season", SEASONS)
-    class FormatFilter : AnimeFilter.List<String>("Format", FORMATS)
+    /** Base class for select-style filters. */
+    private open class SelectFilter(
+        name: String,
+        values: Array<String>,
+    ) : AnimeFilter.Select<String>(name, values)
+
+    class YearFilter : SelectFilter("Year", YEARS)
+    class SeasonFilter : SelectFilter("Season", SEASONS)
+    class FormatFilter : SelectFilter("Format", FORMATS)
 
     val FILTER_LIST = AnimeFilterList(
         AnimeFilter.Header("Note: Genre and sort filters are not supported by reanime.to's public API."),

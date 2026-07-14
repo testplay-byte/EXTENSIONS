@@ -13,7 +13,7 @@ android {
         // ★ applicationId = ...en.reanime180, but SOURCE class is in package ...en.reanime.
         // applicationId ≠ source package → must use FULL extClass path (no leading dot).
         val extClass = "eu.kanade.tachiyomi.animeextension.en.reanime.Reanime"
-        val extVersionCode = 2  // v16.1 (build 2: fix crash — add versionId + lazy settings)
+        val extVersionCode = 3  // v16.1 (build 3: show all servers + plain OkHttp for flixcloud m3u8)
         val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
                                 // The source id = MD5("reanime 180/en/$extVersionId"). NEVER change after publish.
         val isNsfw = false

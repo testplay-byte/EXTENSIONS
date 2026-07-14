@@ -285,7 +285,7 @@ class Reanime : ConfigurableAnimeSource, AnimeHttpSource() {
             val videos = videoExtractor.extractVideos(
                 anilistId = anilistId,
                 epNumber = epNumber,
-                audioType = langType.ifBlank { settings.preferredAudio },
+                preferredAudio = langType.ifBlank { settings.preferredAudio },
                 enableHD1 = settings.enableHD1,
                 enableHD2 = settings.enableHD2,
                 webviewTimeout = settings.webviewTimeout,

@@ -15,9 +15,12 @@ import okhttp3.Response
  *
  * Flow:
  * 1. GET /api/flix/<anilist_id>/<ep> → server list (HD-1/HD-2 × sub/dub)
- * 2. For each matching server: load the flixcloud.cc embed in WebView
- * 3. Intercept /api/m3u8/<token> requests → read the master playlist body
- * 4. Parse the master for quality variants → create Video objects
+ * 2. For each unique embed URL: load in WebView, intercept m3u8 requests
+ * 3. Parse the master playlist for quality variants → create Video objects
+ *
+ * ★ Server deduplication: HD-1 sub and HD-1 dub share the SAME embed URL (v=1).
+ * HD-2 sub and HD-2 dub share v=2. So we only load 2 unique embeds, not 4.
+ * Each embed produces m3u8 URLs that may serve both sub and dub audio tracks.
  *
  * @param client The OkHttp client (inherited from the source — has CloudflareInterceptor)
  * @param headers Default headers (Referer, User-Agent)
@@ -36,16 +39,16 @@ class ReanimeExtractor(
      *
      * @param anilistId The AniList ID (used for /api/flix/<id>/<ep>)
      * @param epNumber The episode number
-     * @param audioType "sub" or "dub" — filters which flix servers to use
+     * @param preferredAudio "sub" or "dub" — used for SORTING only (not filtering)
      * @param enableHD1 Whether HD-1 server is enabled in settings
      * @param enableHD2 Whether HD-2 server is enabled in settings
      * @param webviewTimeout WebView extraction timeout in seconds
-     * @return List of Video objects
+     * @return List of Video objects (ALL servers — sub + dub — sorted by preference)
      */
     fun extractVideos(
         anilistId: String,
         epNumber: Int,
-        audioType: String,
+        preferredAudio: String,
         enableHD1: Boolean,
         enableHD2: Boolean,
         webviewTimeout: Int,
@@ -57,7 +60,7 @@ class ReanimeExtractor(
         ReanimeLog.i("extractVideos: fetching servers from $flixUrl")
 
         val flixResponse = try {
-            client.newCall(GET(flixUrl, headers)).execute().use { resp ->
+            client.newCall(GET(flixUrl, headers)).use { resp ->
                 parseFlixResponse(resp)
             }
         } catch (e: Exception) {
@@ -75,11 +78,8 @@ class ReanimeExtractor(
             ReanimeLog.d("  server: ${s.serverName} / ${s.dataType} / ${s.dataLink}")
         }
 
-        // 2. Filter + deduplicate servers
-        val targetServers = flixResponse.servers.filter { server ->
-            // Match audio type
-            if (server.dataType != audioType) return@filter false
-            // Match enabled servers
+        // 2. Filter by enabled servers (but NOT by audio type — show both sub and dub)
+        val enabledServers = flixResponse.servers.filter { server ->
             when (server.serverName.uppercase()) {
                 "HD-1" -> enableHD1
                 "HD-2" -> enableHD2
@@ -87,32 +87,47 @@ class ReanimeExtractor(
             }
         }
 
-        if (targetServers.isEmpty()) {
-            ReanimeLog.w("extractVideos: no servers match (audioType=$audioType, HD1=$enableHD1, HD2=$enableHD2)")
+        if (enabledServers.isEmpty()) {
+            ReanimeLog.w("extractVideos: no servers enabled (HD1=$enableHD1, HD2=$enableHD2)")
             return emptyList()
         }
 
-        // 3. Extract videos from each matching server
-        for (server in targetServers) {
+        // 3. Group servers by unique embed URL (HD-1 sub+dub share v=1, HD-2 sub+dub share v=2)
+        // This way we only load each embed once, but create Videos for both sub and dub.
+        val embedGroups = enabledServers.groupBy { it.dataLink }
+        ReanimeLog.i("extractVideos: ${embedGroups.size} unique embed URLs to load")
+
+        // 4. Extract videos from each unique embed
+        for ((embedUrl, servers) in embedGroups) {
             try {
-                val serverVideos = extractFromServer(server, webviewTimeout)
-                videos.addAll(serverVideos)
-                ReanimeLog.i("extractVideos: ${server.serverName} (${server.dataType}) → ${serverVideos.size} videos")
+                val embedVideos = extractFromEmbed(embedUrl, servers, webviewTimeout)
+                videos.addAll(embedVideos)
+                ReanimeLog.i("extractVideos: $embedUrl → ${embedVideos.size} videos")
             } catch (e: Exception) {
-                ReanimeLog.e("extractVideos: ${server.serverName} (${server.dataType}) failed — ${e.message}", e)
+                ReanimeLog.e("extractVideos: $embedUrl failed — ${e.message}", e)
             }
         }
 
         return videos
     }
 
-    /** Extract videos from a single flixcloud.cc server embed. */
-    private fun extractFromServer(server: FlixServer, webviewTimeout: Int): List<Video> {
-        val embedUrl = server.dataLink
-        val serverName = server.serverName
-        val audioLabel = server.dataType.uppercase() // "SUB" or "DUB"
+    /**
+     * Extract videos from a single flixcloud.cc embed URL.
+     *
+     * @param embedUrl The flixcloud.cc/e/<code>?v=<N> URL
+     * @param servers All FlixServer entries that share this embed URL (e.g. HD-1 sub + HD-1 dub)
+     * @param webviewTimeout WebView extraction timeout in seconds
+     * @return List of Video objects
+     */
+    private fun extractFromEmbed(
+        embedUrl: String,
+        servers: List<FlixServer>,
+        webviewTimeout: Int,
+    ): List<Video> {
+        val serverName = servers.firstOrNull()?.serverName ?: "Unknown"
+        val audioTypes = servers.map { it.dataType.uppercase() }.distinct() // ["SUB"], ["DUB"], or ["SUB","DUB"]
 
-        ReanimeLog.i("extractFromServer: $serverName ($audioLabel) — loading $embedUrl")
+        ReanimeLog.i("extractFromEmbed: $serverName (audio: $audioTypes) — loading $embedUrl")
 
         // Load the embed in WebView and intercept m3u8 requests
         val captured = webViewFetcher.interceptVideoUrls(
@@ -121,7 +136,7 @@ class ReanimeExtractor(
         )
 
         if (captured.isEmpty()) {
-            ReanimeLog.w("extractFromServer: no m3u8 captured for $serverName ($audioLabel)")
+            ReanimeLog.w("extractFromEmbed: no m3u8 captured for $serverName")
             return emptyList()
         }
 
@@ -132,40 +147,48 @@ class ReanimeExtractor(
             .build()
 
         for (m3u8 in captured) {
-            if (m3u8.body.isNotBlank()) {
+            if (m3u8.body.isNotBlank() && m3u8.body.startsWith("#EXTM3U")) {
                 // Parse the master playlist for quality variants
                 val variants = PlaylistUtils.parseMaster(m3u8.body, m3u8.requestUrl)
                 if (variants.isEmpty()) {
-                    // No variants found — use the m3u8 URL directly
-                    videos.add(
-                        Video(
-                            videoUrl = m3u8.requestUrl,
-                            videoTitle = "$serverName - $audioLabel",
-                            headers = flixHeaders,
-                        ),
-                    )
-                } else {
-                    // Create a Video for each quality variant
-                    for (v in variants) {
+                    // No variants found — it's a media playlist. Use the m3u8 URL directly.
+                    // Create a Video for each audio type (sub/dub) — the HLS stream may
+                    // contain both audio tracks; the player will let the user switch.
+                    for (audio in audioTypes) {
                         videos.add(
                             Video(
-                                videoUrl = v.url,
-                                videoTitle = "$serverName - ${v.qualityLabel} - $audioLabel",
+                                videoUrl = m3u8.requestUrl,
+                                videoTitle = "$serverName - $audio",
                                 headers = flixHeaders,
                             ),
                         )
-                        ReanimeLog.d("  variant: ${v.qualityLabel} (${v.resolution}) → ${ReanimeLog.trunc(v.url, 80)}")
+                    }
+                } else {
+                    // Create a Video for each quality variant × audio type
+                    for (v in variants) {
+                        for (audio in audioTypes) {
+                            videos.add(
+                                Video(
+                                    videoUrl = v.url,
+                                    videoTitle = "$serverName - ${v.qualityLabel} - $audio",
+                                    headers = flixHeaders,
+                                ),
+                            )
+                            ReanimeLog.d("  variant: ${v.qualityLabel} ($audio) → ${ReanimeLog.trunc(v.url, 80)}")
+                        }
                     }
                 }
             } else {
-                // Direct video URL (no body — e.g. a .mp4 or .m3u8 from another CDN)
-                videos.add(
-                    Video(
-                        videoUrl = m3u8.requestUrl,
-                        videoTitle = "$serverName - $audioLabel",
-                        headers = flixHeaders,
-                    ),
-                )
+                // Direct video URL (no body or not m3u8 — e.g. a .mp4 from another CDN)
+                for (audio in audioTypes) {
+                    videos.add(
+                        Video(
+                            videoUrl = m3u8.requestUrl,
+                            videoTitle = "$serverName - $audio",
+                            headers = flixHeaders,
+                        ),
+                    )
+                }
             }
         }
 

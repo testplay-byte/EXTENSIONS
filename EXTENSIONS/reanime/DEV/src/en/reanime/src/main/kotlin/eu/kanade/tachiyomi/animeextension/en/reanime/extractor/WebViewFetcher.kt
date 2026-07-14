@@ -30,12 +30,13 @@ import java.util.concurrent.atomic.AtomicReference
  *   body, and returns all captured (url, body) pairs for the extractor to parse.
  *
  * The m3u8 token is SINGLE-USE (re-fetching returns 410 "invalid_or_used_token").
- * So we intercept the request in shouldInterceptRequest, make it ourselves via OkHttp
- * (consuming the token), read the response body, and return it as a WebResourceResponse
- * to the WebView (so the player JS also gets the data). We keep the body for parsing.
+ * So we intercept the request in shouldInterceptRequest, make it ourselves via a PLAIN
+ * OkHttp client (no CloudflareInterceptor — it would interfere with flixcloud.cc),
+ * read the response body, and return it as a WebResourceResponse to the WebView (so the
+ * player JS also gets the data). We keep the body for parsing quality variants.
  *
  * @param context The app context (for creating the WebView)
- * @param client The OkHttp client (inherited from the source — has CloudflareInterceptor)
+ * @param client The OkHttp client (inherited from the source — has CloudflareInterceptor for reanime.to)
  * @param defaultHeaders Default headers for OkHttp requests (Referer, User-Agent)
  */
 class WebViewFetcher(
@@ -48,6 +49,16 @@ class WebViewFetcher(
 
     @Volatile
     private var webView: WebView? = null
+
+    // ★ Plain OkHttp client for flixcloud.cc m3u8 requests.
+    // The inherited `client` has CloudflareInterceptor which interferes with flixcloud.cc
+    // (different CF zone, different cookies). We use a plain client + pass WebView cookies manually.
+    private val plainClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
 
     /** Pre-initialize the WebView on the main thread (call during episode list fetch). */
     fun warmUp() {
@@ -135,7 +146,7 @@ class WebViewFetcher(
      * Data captured from a single m3u8 request interception.
      *
      * @param requestUrl The /api/m3u8/<token> URL
-     * @param body The master playlist body (for parsing quality variants)
+     * @param body The master playlist body (for parsing quality variants). Empty if fetch failed.
      */
     data class CapturedM3u8(
         val requestUrl: String,
@@ -147,7 +158,8 @@ class WebViewFetcher(
      *
      * Loads the flixcloud.cc embed page in the WebView. When the player JS
      * fetches `/api/m3u8/<token>`, shouldInterceptRequest intercepts it:
-     * 1. Makes the request ourselves via OkHttp (with WebView cookies + Referer)
+     * 1. Makes the request ourselves via a PLAIN OkHttp client (no CloudflareInterceptor)
+     *    with the WebView's cookies + Referer
      * 2. Reads the response body (the master playlist)
      * 3. Returns it as a WebResourceResponse to the WebView (player gets it too)
      * 4. Stores the (url, body) pair for the extractor to parse
@@ -183,20 +195,30 @@ class WebViewFetcher(
                             // can read the response body (the token is single-use).
                             if (reqUrl.contains("/api/m3u8/") && reqUrl.contains("flixcloud")) {
                                 try {
-                                    val cookies = CookieManager.getInstance().getCookie(reqUrl)
-                                    val reqHeaders = defaultHeaders.newBuilder()
+                                    // Get cookies from the WebView's CookieManager (for flixcloud.cc)
+                                    val cookies = CookieManager.getInstance().getCookie("https://flixcloud.cc/")
+
+                                    val reqHeaders = Headers.Builder()
                                         .set("Referer", "https://flixcloud.cc/")
+                                        .set("User-Agent", DESKTOP_UA)
+                                        .set("Accept", "application/vnd.apple.mpegurl, */*")
                                         .apply {
-                                            if (cookies.isNotBlank()) set("Cookie", cookies)
+                                            if (!cookies.isNullOrBlank()) set("Cookie", cookies)
                                         }
                                         .build()
 
                                     ReanimeLog.i("WebViewFetcher: intercepting m3u8 request: ${ReanimeLog.trunc(reqUrl, 100)}")
-                                    val response = client.newCall(GET(reqUrl, reqHeaders)).execute()
+                                    ReanimeLog.d("WebViewFetcher: cookies present: ${!cookies.isNullOrBlank()}")
+
+                                    // ★ Use plainClient (no CloudflareInterceptor) for flixcloud.cc
+                                    val response = plainClient.newCall(GET(reqUrl, reqHeaders)).execute()
                                     val body = response.body?.string().orEmpty()
+                                    val statusCode = response.code
                                     response.close()
 
-                                    if (body.isNotBlank()) {
+                                    ReanimeLog.i("WebViewFetcher: m3u8 response status=$statusCode, body=${body.length} chars")
+
+                                    if (body.isNotBlank() && statusCode == 200) {
                                         captured.add(CapturedM3u8(reqUrl, body))
                                         ReanimeLog.i("WebViewFetcher: captured m3u8 body (${body.length} chars)")
                                         if (foundFirst.compareAndSet(false, true)) {
@@ -205,11 +227,18 @@ class WebViewFetcher(
                                                 doneLatch.countDown()
                                             }, 3000)
                                         }
+                                    } else if (body.isNotBlank() && statusCode != 200) {
+                                        ReanimeLog.w("WebViewFetcher: m3u8 request returned $statusCode: ${ReanimeLog.trunc(body, 200)}")
                                     }
 
                                     // Return the response to the WebView so the player JS works
+                                    val contentType = if (body.startsWith("#EXTM3U")) {
+                                        "application/vnd.apple.mpegurl"
+                                    } else {
+                                        "text/plain"
+                                    }
                                     return WebResourceResponse(
-                                        "application/vnd.apple.mpegurl",
+                                        contentType,
                                         "utf-8",
                                         ByteArrayInputStream(body.toByteArray()),
                                     )

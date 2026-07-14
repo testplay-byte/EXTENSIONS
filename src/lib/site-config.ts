@@ -88,6 +88,22 @@ export const EXTENSIONS: ExtensionMeta[] = [
     accent: "coral",
     features: ["Catalog + details", "6 video servers", "Server toggle settings", "In progress"],
   },
+  {
+    id: "reanime",
+    name: "Re:ANIME 180",
+    tagline:
+      "Anime streaming extension for reanime.to — catalog, search, filters, details, episodes + flixcloud.cc HLS video playback (HD-1/HD-2 × sub/dub).",
+    version: "v16.1",
+    build: 1,
+    date: "July 14, 2026",
+    status: "wip",
+    availableBuilds: ["debug"],
+    icon: "/reanime-icon.png",
+    letter: "RE",
+    site: "reanime.to",
+    accent: "lime",
+    features: ["Catalog + search", "Year/season/format filters", "flixcloud HLS playback", "Sub + Dub support"],
+  },
 ];
 
 // Build the download URL for an extension's APK.

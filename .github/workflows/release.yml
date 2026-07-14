@@ -84,6 +84,11 @@ jobs:
         working-directory: EXTENSIONS/mkissa/DEV
         run: ./gradlew :src:en:mkissa:assembleDebug --no-daemon --stacktrace
 
+      # ── Re:ANIME: debug only (no release keystore yet) ──
+      - name: Build Re:ANIME (debug)
+        working-directory: EXTENSIONS/reanime/DEV
+        run: ./gradlew :src:en:reanime:assembleDebug --no-daemon --stacktrace
+
       - name: Collect & list APKs
         id: collect
         run: |

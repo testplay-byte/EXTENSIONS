@@ -12,6 +12,7 @@
 | **AniKoto 180** | [`EXTENSIONS/anikoto/`](../EXTENSIONS/anikoto/) | `en` | ✅ All features working | v16.9 (Build 7, versionCode 9, versionId 11) | anikototv.to | `...en.anikoto.Anikoto` |
 | **AnimePahe 180** | [`EXTENSIONS/animepahe/`](../EXTENSIONS/animepahe/) | `en` | ✅ All features working | v16.10 (Build 10, versionCode 10, versionId 1) | animepahe.pw | `...en.animepahe.AnimePahe` |
 | **MKissa 180** | [`EXTENSIONS/mkissa/`](../EXTENSIONS/mkissa/) | `en` | 🚧 In progress (3/6 video servers working) | v16.17 (Build 17, versionCode 17, versionId 1) | mkissa.to | `...en.mkissa.MKissa` |
+| **Re:ANIME 180** | [`EXTENSIONS/reanime/`](../EXTENSIONS/reanime/) | `en` | 🚧 In progress (initial build) | v16.1 (Build 1, versionCode 1, versionId 1) | reanime.to | `...en.reanime.Reanime` |
 
 ## Status legend
 
@@ -28,6 +29,7 @@ Each extension has an `EXTENSION.md` at its folder root — the single file to r
 - AniKoto 180 → [`EXTENSIONS/anikoto/EXTENSION.md`](../EXTENSIONS/anikoto/EXTENSION.md)
 - AnimePahe → [`EXTENSIONS/animepahe/EXTENSION.md`](../EXTENSIONS/animepahe/EXTENSION.md)
 - MKissa → [`EXTENSIONS/mkissa/EXTENSION.md`](../EXTENSIONS/mkissa/EXTENSION.md)
+- Re:ANIME → [`EXTENSIONS/reanime/EXTENSION.md`](../EXTENSIONS/reanime/EXTENSION.md)
 
 ## ★ How to build a new extension
 

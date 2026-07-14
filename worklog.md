@@ -3767,3 +3767,32 @@ Stage Summary:
   - Vn-Hls: unchanged (server-side issues, archive for later).
   - Ak: internal hoster, same as Luf-Mp4 (should work if Luf-Mp4 works).
   - Luf-Mp4: needs cf_clearance (on-device only).
+
+---
+Task ID: miruro-session-03
+Agent: Main Agent (Z.ai Code)
+Task: User verified the corrected analysis and approved building. Build the Miruro 180 extension, ship via GitHub Actions, deploy to the live download page. Also ensure the GitHub Pages download page is properly built with a working APK download link.
+
+Work Log:
+- Built the extension: 6 Kotlin source files (~1,700 lines total) — Miruro.kt (969 lines, main source with pipe API client + catalog + details + episodes + videos + 11 settings + browser-fingerprint interceptor + cookie farming), MiruroExtractor.kt (290 lines, XOR+gzip decrypt + proxy URL + HLS wrapping), MiruroDto.kt (220 lines, DTOs), MiruroFilters.kt (280 lines, 8 filter categories), MiruroSettings.kt (124 lines, 11 prefs), MiruroLog.kt (23 lines, logger). All inline (no lib deps) per our convention.
+- Scaffolded DEV/ Gradle project from mkissa's structure: settings.gradle.kts, build.gradle.kts (extName "Miruro 180", extClass full path, versionCode 1, versionId 1, isNsfw true, versionName "16.1", applicationIdSuffix "en.miruro180"), common/proguard-rules.pro, 27 stub files, gradle wrapper + libs.versions.toml.
+- Generated app icon via image-generation skill (purple-to-cyan play/iris motif). Processed into 5 mipmap densities (48/72/96/144/192) + webpage icon (256).
+- Updated src/lib/site-config.ts (added Miruro card), MEMORY/EXTENSIONS.md (added Miruro row), .github/workflows/build.yml + release.yml (added Miruro debug build step).
+- First CI build failed with 3 compile errors: (1) missing seasonListParse + hosterListParse abstract methods, (2) sort() should be sortVideos(), (3) const val MIRROR_DEFAULT can't reference runtime array. Fixed all 3 in a second commit.
+- Second CI build: ✅ SUCCESS (all 4 extensions compiled on miruro branch).
+- Merged miruro → main. Main had moved on (anidb + reanime extensions + mkissa v16.19/v16.20 added in parallel). Resolved 5 conflicts: build.yml, release.yml, EXTENSIONS.md, site-config.ts, worklog.md — kept all 6 extensions in each.
+- Tagged v1.5.0. Release workflow: ✅ SUCCESS — 6 APK assets published (anikoto signed, animepahe signed, mkissa debug, anidb debug, reanime debug, miruro debug 192.6KB).
+- Release triggered Pages redeploy: ✅ SUCCESS — fetched latest release APKs into /EXTENSIONS/downloads/ (same-origin).
+- Verified live page with agent-browser: https://testplay-byte.github.io/EXTENSIONS/ — 6 extension cards (AniKoto, AnimePahe, MKissa, AniDB, Re:ANIME, Miruro). Miruro download link: /EXTENSIONS/downloads/aniyomi-en.miruro180-v16.1-debug.apk → HTTP 200, 197244 bytes, application/vnd.android.package-archive. Download works.
+
+Stage Summary:
+- ★ Miruro 180 extension fully built, shipped, and live on the download page.
+- ★ Release v1.5.0: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.5.0 (6 APKs).
+- ★ Live page: https://testplay-byte.github.io/EXTENSIONS/ — 6 cards, Miruro download verified (HTTP 200, 192.6KB).
+- ★ All 6 extensions compile in CI (Build workflow passes on main).
+- ★ Merge conflicts with parallel anidb/reanime work resolved cleanly — no impact on other extensions.
+- HONEST STATUS — needs on-device testing (cannot verify video playback in sandbox):
+  - Catalog/search/details/episodes: should work (pipe API + AniList fallback)
+  - Video playback (HLS): should work (proxied through vault01/02.ultracloud.cc with XOR(PROXY_KEY) obfuscation)
+  - Video playback (embed): passed through as-is for v16.1 (MegaCloud/RapidCloud inline extraction deferred to a future build)
+  - Cloudflare bypass: needs on-device WebView (inherited CloudflareInterceptor + MiruroBrowserFingerprintInterceptor + cookie farming)

@@ -52,15 +52,21 @@ cd /home/z/my-project/EXTENSIONS/miruro/DEV
 
 Before/after every build, follow `MEMORY/guides/04-build-checklist.md` (mandatory).
 
-## Current status (v16.1 Build 1) — 🚧 STEP 1 (SITE ANALYSIS) COMPLETE — AWAITING USER VERIFICATION
+## Current status (v16.1 Build 1) — ✅ BUILT, SHIPPED, LIVE (needs on-device testing)
 
 - [x] **Step 1 — Analyze the website** — `MEMORY/sites/site-analysis.md` (CORRECTED after yuzono cross-check)
-- [ ] **User verification** of the corrected analysis
-- [ ] **Step 1.5 — Video stream capture analysis** (the `sources` pipe response, CDN domains, per-server extraction)
-- [ ] **Step 2 — Catalog** (pipe `search/browse` + AniLib fallback)
-- [ ] **Step 3 — Details + episodes** (pipe `info` + `episodes`, 4 sub-types in scanlator)
-- [ ] **Step 4 — Playback** (11 providers × 4 sub-types, MegaCloud/RapidCloud/OmniEmbed extractors, vault proxy)
-- [ ] **Step 5 — Build, test, release**
+- [x] **User verification** of the corrected analysis (11 providers, 4 sub-types confirmed)
+- [x] **Step 1.5 — Video stream capture analysis** (pipe `sources` response, vault proxy, embed routing)
+- [x] **Step 2 — Catalog** (pipe `search/browse` + 8 filter categories)
+- [x] **Step 3 — Details + episodes** (pipe `info` + `episodes`, 4 sub-types in scanlator)
+- [x] **Step 4 — Playback** (11 providers × 4 sub-types, HLS via vault proxy, embed pass-through)
+- [x] **Step 5 — Build, test, release** — v16.1 debug APK built, release v1.5.0 published, live on download page
+
+### Release status
+- **GitHub Release**: https://github.com/testplay-byte/EXTENSIONS/releases/tag/v1.5.0
+- **APK**: `aniyomi-en.miruro180-v16.1-debug.apk` (192.6 KB, debug)
+- **Download page**: https://testplay-byte.github.io/EXTENSIONS/ — Miruro card with working download button
+- **CI**: all 6 extensions compile (Build workflow passes on main)
 
 ### Key facts (verified from yuzono reference + live probe)
 - **Backend**: Miruro's own pipe API (`/api/secure/pipe?e=<base64url-json>`) — NOT Consumet

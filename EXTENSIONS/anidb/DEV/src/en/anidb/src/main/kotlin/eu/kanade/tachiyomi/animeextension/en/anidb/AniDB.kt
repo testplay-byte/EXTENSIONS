@@ -220,7 +220,8 @@ class AniDB : AnimeHttpSource(), ConfigurableAnimeSource {
                 if (key.isNotBlank() && value.isNotBlank()) meta[key] = value
             }
 
-            type = meta["Type"]
+            // SAnime has no `type` field — include the type (TV/Movie/OVA) as part of genre
+            val typeStr = meta["Type"]
             status = when (meta["Status"]?.lowercase()) {
                 "currently airing" -> SAnime.ONGOING
                 "finished airing" -> SAnime.COMPLETED
@@ -230,18 +231,16 @@ class AniDB : AnimeHttpSource(), ConfigurableAnimeSource {
             // ★ The detail page lists the anime's genres as <a href="/browse?genres=<id>">
             // links in a footer section. Exclude the "All genres →" link. Themes use
             // /browse?themes=<id> (may be absent for some anime).
-            genre = doc.select("a[href*=browse?genres=]")
+            val genres = doc.select("a[href*=browse?genres=]")
                 .map { it.text() }
                 .filter { it.isNotBlank() && !it.contains("All genres") }
-                .joinToString { it }
-                .takeIf { it.isNotBlank() }
+                .toMutableList()
+            // Prepend the type (TV/Movie/OVA) if available
+            if (!typeStr.isNullOrBlank()) genres.add(0, typeStr)
             val themes = doc.select("a[href*=browse?themes=]")
                 .map { it.text() }
                 .filter { it.isNotBlank() && !it.contains("All themes") }
-                .joinToString { it }
-            if (themes.isNotBlank()) {
-                genre = (genre?.let { "$it, " } ?: "") + themes
-            }
+            genre = (genres + themes).joinToString { it }.takeIf { it.isNotBlank() }
         }
     }
 

@@ -57,6 +57,22 @@ export const EXTENSIONS: ExtensionMeta[] = [
     features: ["4 video servers", "Smart search", "Episode metadata", "R8 release, signed"],
   },
   {
+    id: "anikotos",
+    name: "AniKoto S 180",
+    tagline:
+      "Slimmed variant of AniKoto 180 for anikototv.to — same catalog, details, episodes & 4 video servers, WITHOUT smart search and WITHOUT episode-metadata enrichment.",
+    version: "v16.1",
+    build: 1,
+    date: "July 25, 2026",
+    status: "wip",
+    availableBuilds: ["debug"],
+    icon: "/anikotos-icon.png",
+    letter: "AS",
+    site: "anikototv.to",
+    accent: "lime",
+    features: ["4 video servers", "Kiwi-Stream toggle", "Smart search removed", "Metadata enrichment removed"],
+  },
+  {
     id: "animepahe",
     name: "AnimePahe 180",
     tagline:

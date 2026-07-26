@@ -75,6 +75,11 @@ jobs:
         working-directory: EXTENSIONS/anikoto/DEV
         run: ./gradlew :src:en:anikoto:assembleRelease --no-daemon --stacktrace
 
+      # ── AniKoto S: debug only (no release keystore yet) ──
+      - name: Build AniKoto S (debug)
+        working-directory: EXTENSIONS/anikotos/DEV
+        run: ./gradlew :src:en:anikotos:assembleDebug --no-daemon --stacktrace
+
       - name: Build AnimePahe (release, signed)
         working-directory: EXTENSIONS/animepahe/DEV
         run: ./gradlew :src:en:animepahe:assembleRelease --no-daemon --stacktrace

@@ -20,13 +20,13 @@ import java.util.regex.Pattern
  * Video stream extractors for AnikotoS.
  * Per WORKSPACE/WORKFLOW/04_VIDEO_EXTRACTION_PLAYBACK/ANIKOTO/extraction-flows.md.
  *
- * Two flows:
+ * One flow:
  * - [resolveVidTube] (Flow A): VidPlay-1, HD-1, Vidstream-2, VidCloud-1
  *   iframe → data-id → getSources?id=X&type=Y → master m3u8 → variants → segments
  *   ★ session 27: unified to getSources (works on all 3 hosts with the type param).
  *   ★ session 27: per-stream Referer stored in AudioStream for the proxy to use.
- * - [resolveKiwi] (Flow B): Kiwi-Stream
- *   iframe URL#<base64-fragment> → decode → direct m3u8 → variants → segments
+ *
+ * (Kiwi-Stream / Flow B has been completely removed from this extension.)
  */
 class AnikotoSExtractors(
     private val client: OkHttpClient,
@@ -143,84 +143,6 @@ class AnikotoSExtractors(
         }
     }
 
-    // ── Flow B: Kiwi-Stream (base64 fragment → direct m3u8) ──────────────────
-
-    suspend fun resolveKiwi(iframeUrl: String, audioType: String, hosterName: String): AudioStream? {
-        AnikotoSLog.i("resolveKiwi: START hoster=$hosterName audio=$audioType")
-        try {
-            // Step 1: decode base64 fragment → direct m3u8 URL
-            val fragment = iframeUrl.substringAfter("#")
-            if (fragment.isBlank()) {
-                AnikotoSLog.e("resolveKiwi: no #fragment in iframe URL")
-                return null
-            }
-            val masterM3u8 = try {
-                android.util.Base64.decode(fragment, android.util.Base64.DEFAULT)
-                    .toString(Charsets.ISO_8859_1)
-            } catch (e: Exception) {
-                AnikotoSLog.e("resolveKiwi: base64 decode failed", e)
-                return null
-            }
-            if (!masterM3u8.startsWith("http")) {
-                AnikotoSLog.e("resolveKiwi: decoded fragment is not a URL: ${masterM3u8.take(60)}")
-                return null
-            }
-            AnikotoSLog.i("resolveKiwi: decoded m3u8=${AnikotoSLog.trunc(masterM3u8, 80)}")
-
-            // Step 2: parse master m3u8 (Referer: vibeplayer.site)
-            AnikotoSLog.d("resolveKiwi: [2/4] fetching master m3u8")
-            val masterText = fetchString(masterM3u8, kiwiHeaders())
-            if (!masterText.startsWith("#EXTM3U")) {
-                AnikotoSLog.e("resolveKiwi: master is not m3u8 (starts with ${masterText.take(40)})")
-                return null
-            }
-            val variantInfos = parseMasterPlaylist(masterText, masterM3u8)
-            if (variantInfos.isEmpty()) {
-                AnikotoSLog.e("resolveKiwi: no variants in master m3u8")
-                return null
-            }
-            AnikotoSLog.i("resolveKiwi: ${variantInfos.size} variants: ${variantInfos.joinToString { it.quality }}")
-
-            // Step 3: for each variant, fetch + parse segments (★ NO ad filtering for Kiwi)
-            // ★ session 51: parallelized — all variants fetched concurrently.
-            AnikotoSLog.d("resolveKiwi: [3/4] fetching ${variantInfos.size} variant playlists in parallel (NO ad filter)")
-            val variantDataList = coroutineScope {
-                variantInfos.map { v ->
-                    async(Dispatchers.IO) {
-                        variantSemaphore.withPermit {
-                            try {
-                                val varText = fetchString(v.url, kiwiHeaders())
-                                val segs = parseVariantSegments(varText, v.url, filterAds = false)
-                                AnikotoSLog.d("resolveKiwi:   variant ${v.quality}: ${segs.size} segments (no filter)")
-                                if (segs.isNotEmpty()) VariantData(v.quality, v.bandwidth, v.resolution, segs) else null
-                            } catch (e: CancellationException) {
-                                throw e
-                            } catch (e: Exception) {
-                                AnikotoSLog.e("resolveKiwi:   variant ${v.quality} fetch FAILED: ${e.message}")
-                                null
-                            }
-                        }
-                    }
-                }.awaitAll().filterNotNull()
-            }
-            if (variantDataList.isEmpty()) {
-                AnikotoSLog.e("resolveKiwi: no variants could be loaded")
-                return null
-            }
-
-            // Kiwi labels: mapper "sub" = H-SUB, "dub" = A-DUB
-            val audioLabel = if (audioType == "sub") "H-SUB" else "A-DUB"
-            // ★ per-stream Referer for Kiwi: vibeplayer.site (where the m3u8 lives).
-            // The proxy uses this for segment fetches. Matches the kiwiHeaders() used above.
-            val streamReferer = "https://vibeplayer.site/"
-            AnikotoSLog.i("resolveKiwi: SUCCESS hoster=$hosterName audio=$audioLabel variants=${variantDataList.size} referer=$streamReferer")
-            return AudioStream(audioType, audioLabel, hosterName, variantDataList, emptyList(), streamReferer)
-        } catch (e: Exception) {
-            AnikotoSLog.e("resolveKiwi: FAILED hoster=$hosterName audio=$audioType", e)
-            return null
-        }
-    }
-
     // ── HLS parsing helpers ──────────────────────────────────────────────────
 
     data class VariantInfo(
@@ -262,7 +184,7 @@ class AnikotoSExtractors(
     /**
      * Parse a media playlist into [SegmentInfo]s.
      * @param filterAds if true, keep only segments on nekostream.site (real CDN).
-     *                  If false, keep all segments (Kiwi — all on ad CDN).
+     *                  If false, keep all segments (default — see resolveVidTube).
      */
     private fun parseVariantSegments(text: String, variantUrl: String, filterAds: Boolean): List<SegmentInfo> {
         val base = variantUrl.substringBeforeLast("/") + "/"
@@ -295,7 +217,7 @@ class AnikotoSExtractors(
      *
      * OkHttp's TLS fingerprint (Conscrypt/JA3) is blocked by cdn.mewstream.buzz's WAF.
      * For known WAF-blocked hosts, skip OkHttp and go straight to WebViewFetcher (Chrome's TLS).
-     * For other hosts, try OkHttp first — VidCloud-1/VidPlay-1/Kiwi never trigger the fallback.
+     * For other hosts, try OkHttp first — VidCloud-1/VidPlay-1 never trigger the fallback.
      */
     private suspend fun fetchString(url: String, headers: Headers): String = withContext(Dispatchers.IO) {
         // ★ session 31: for WAF-blocked CDN hosts, go straight to WebView (skip OkHttp 403 wait)
@@ -349,12 +271,6 @@ class AnikotoSExtractors(
     private fun segHeaders(host: String) = Headers.Builder()
         .set("User-Agent", BROWSER_UA)
         .set("Referer", "https://$host/")
-        .set("Accept", "*/*")
-        .build()
-
-    private fun kiwiHeaders() = Headers.Builder()
-        .set("User-Agent", BROWSER_UA)
-        .set("Referer", "https://vibeplayer.site/")
         .set("Accept", "*/*")
         .build()
 

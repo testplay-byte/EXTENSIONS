@@ -4,7 +4,6 @@ import android.content.SharedPreferences
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceScreen
-import androidx.preference.SwitchPreferenceCompat
 
 /**
  * ★ Module: Settings — all preference keys, defaults, typed getters, and the settings UI.
@@ -13,13 +12,14 @@ import androidx.preference.SwitchPreferenceCompat
  * Modifying the settings UI or adding new preferences does not require touching the main
  * source class — just update this file.
  *
- * ## Preference categories
+ * ## Preference category
  * 1. **Playback** — quality, audio, buffer, server
- * 2. **Servers** — Kiwi-Stream toggle
+ *
+ * (Kiwi-Stream has been completely removed — no toggle, no mapper discovery, no server option.)
  *
  * ## Architecture
  * - [AnikotoSSettings] wraps a [SharedPreferences] instance and exposes typed getters.
- * - [setupPreferenceScreen] builds the 2-category settings UI.
+ * - [setupPreferenceScreen] builds the 1-category settings UI.
  * - The main AnikotoS.kt class creates an instance and delegates to it.
  *
  * @property prefs The SharedPreferences instance (keyed by source ID)
@@ -44,18 +44,13 @@ class AnikotoSSettings(private val prefs: SharedPreferences) {
     val preferredServer: String
         get() = prefs.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
 
-    /** Whether Kiwi-Stream server discovery is enabled (default: true) */
-    val enableKiwi: Boolean
-        get() = prefs.getBoolean(PREF_ENABLE_KIWI_KEY, PREF_ENABLE_KIWI_DEFAULT)
-
     // ── Settings UI ────────────────────────────────────────────────────
 
     /**
-     * Build the settings preference screen with 2 categories.
+     * Build the settings preference screen with 1 category.
      *
-     * Categories:
+     * Category:
      * 1. **Playback** — quality, audio, buffer, server (all with "Currently: %s")
-     * 2. **Servers** — Kiwi-Stream toggle
      *
      * All dropdowns show "Currently: %s" so the user can see the current value.
      */
@@ -96,24 +91,10 @@ class AnikotoSSettings(private val prefs: SharedPreferences) {
             ListPreference(context).apply {
                 key = PREF_SERVER_KEY
                 title = "Preferred server"
-                entries = arrayOf("Auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream")
-                entryValues = arrayOf("auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream")
+                entries = arrayOf("Auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1")
+                entryValues = arrayOf("auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1")
                 setDefaultValue(PREF_SERVER_DEFAULT)
                 summary = "Currently: %s"
-            }.also(::addPreference)
-        }
-
-        // ── Category 2: Servers ─────────────────────────────────────────
-        PreferenceCategory(screen.context).apply {
-            title = "Servers"
-            screen.addPreference(this)
-
-            SwitchPreferenceCompat(context).apply {
-                key = PREF_ENABLE_KIWI_KEY
-                title = "Enable Kiwi-Stream"
-                summaryOn = "Fetching Kiwi-Stream from external sources"
-                summaryOff = "Kiwi-Stream disabled"
-                setDefaultValue(PREF_ENABLE_KIWI_DEFAULT)
             }.also(::addPreference)
         }
     }
@@ -131,9 +112,5 @@ class AnikotoSSettings(private val prefs: SharedPreferences) {
         internal const val PREF_BUFFER_DEFAULT = "10"
         internal const val PREF_SERVER_KEY = "pref_server"
         internal const val PREF_SERVER_DEFAULT = "auto"
-
-        // Servers
-        internal const val PREF_ENABLE_KIWI_KEY = "pref_enable_kiwi"
-        internal const val PREF_ENABLE_KIWI_DEFAULT = true
     }
 }

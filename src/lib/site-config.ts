@@ -70,7 +70,7 @@ export const EXTENSIONS: ExtensionMeta[] = [
     letter: "AS",
     site: "anikototv.to",
     accent: "lime",
-    features: ["4 video servers", "Kiwi-Stream toggle", "Smart search removed", "Metadata enrichment removed"],
+    features: ["4 video servers", "No smart search", "No metadata enrichment", "No Kiwi-Stream"],
   },
   {
     id: "animepahe",

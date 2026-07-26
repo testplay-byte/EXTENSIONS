@@ -66,7 +66,6 @@ class AnikotoS : AnimeHttpSource(), ConfigurableAnimeSource {
     private val preferredAudio: String get() = settings.preferredAudio
     private val prefetchBuffer: String get() = settings.prefetchBuffer
     private val preferredServer: String get() = settings.preferredServer
-    private val enableKiwi: Boolean get() = settings.enableKiwi
 
     // ── Clients ──────────────────────────────────────────────────────────
     // ★ session 28: use the inherited `client` (app's network.client) for extractors + proxy.
@@ -319,10 +318,8 @@ class AnikotoS : AnimeHttpSource(), ConfigurableAnimeSource {
         AnikotoSLog.i("getHosterList: EpisodeMeta parsed OK: slug=${meta.slug} num=${meta.epNum} mal=${meta.malId} ts=${meta.timestamp} hasSub=${meta.hasSub} hasDub=${meta.hasDub}")
         AnikotoSLog.d("getHosterList: dataIds token (first 60) = ${AnikotoSLog.trunc(meta.dataIds, 60)}")
 
-        // ── Discovery: PATH A (primary server list) + PATH B (mapper) in parallel ──
-        // ★ session 51: PATH A and PATH B now run concurrently via coroutineScope.
-        // Previously these were sequential — the mapper API call (200-500ms) was blocked
-        // behind the primary server list call. Now they overlap, saving ~200-500ms.
+        // ── Discovery: primary server list (/ajax/server/list) ──
+        // (Kiwi-Stream mapper API removed — this extension no longer queries it.)
         val tasks = mutableListOf<HosterTask>()
         coroutineScope {
             // ── PATH A: primary server list (/ajax/server/list) ──────────
@@ -359,62 +356,12 @@ class AnikotoS : AnimeHttpSource(), ConfigurableAnimeSource {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    AnikotoSLog.e("PATH A: FAILED — continuing to mapper", e)
+                    AnikotoSLog.e("PATH A: FAILED", e)
                 }
                 primaryTasks
             }
 
-            // ── PATH B: mapper API (Kiwi-Stream) ─────────────────────────
-            // ★ session 45 (v16.29): gated by the enableKiwi toggle (default ON).
-            // When OFF, the mapper API is not called at all — no Kiwi-Stream servers.
-            val pathB = async {
-                val mapperTasks = mutableListOf<HosterTask>()
-                if (!enableKiwi) {
-                    AnikotoSLog.i("PATH B: skipped (Kiwi-Stream disabled in settings)")
-                } else if (meta.malId.isNotEmpty() && meta.epNum.isNotEmpty() && meta.timestamp.isNotEmpty()) {
-                    AnikotoSLog.d("PATH B: fetching mapper for mal=${meta.malId} ep=${meta.epNum} ts=${meta.timestamp}")
-                    try {
-                        val mapperUrl = "https://mapper.nekostream.site/api/mal/${meta.malId}/${meta.epNum}/${meta.timestamp}"
-                        AnikotoSLog.d("PATH B: GET $mapperUrl")
-                        val mapperResp = client.newCall(
-                            GET(mapperUrl, xhrHeaders("$baseUrl/watch/${meta.slug}/ep-1"))
-                        ).awaitSuccess()
-                        val mapperBody = mapperResp.body.string()
-                        AnikotoSLog.d("PATH B: response (first 300 chars) = ${AnikotoSLog.trunc(mapperBody, 300)}")
-                        val mapperJson = json.parseToJsonElement(mapperBody) as? kotlinx.serialization.json.JsonObject
-                        if (mapperJson != null) {
-                            val tokens = parseMapperResponse(mapperJson)
-                            AnikotoSLog.i("PATH B: parsed ${tokens.size} mapper tokens")
-                            if (tokens.isEmpty()) {
-                                // ★ session 40: log when Kiwi-Stream only has download (no streaming)
-                                val hasKiwiDownload = mapperJson.keys.any { it == "Kiwi-Stream" }
-                                if (hasKiwiDownload) {
-                                    AnikotoSLog.i("PATH B: Kiwi-Stream has download links but no streaming URL — streaming not available for this episode")
-                                } else {
-                                    AnikotoSLog.i("PATH B: no Kiwi-Stream entries found in mapper response")
-                                }
-                            }
-                            for (token in tokens) {
-                                AnikotoSLog.d("PATH B: found [${token.audio}] ${token.serverName}- token=${AnikotoSLog.trunc(token.token, 40)}")
-                                if (token.serverName != "Kiwi-Stream") continue
-                                val label = if (token.audio == "sub") "H-SUB" else "A-DUB"
-                                mapperTasks.add(HosterTask("$label - ${token.serverName}", token.token, token.audio, "mapper"))
-                            }
-                        }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        AnikotoSLog.e("PATH B: mapper FAILED — continuing with primary tasks", e)
-                    }
-                } else {
-                    AnikotoSLog.w("PATH B: skipped (missing malId/epNum/timestamp in EpisodeMeta)")
-                }
-                mapperTasks
-            }
-
-            // Merge results from both paths
             tasks.addAll(pathA.await())
-            tasks.addAll(pathB.await())
         }
 
         AnikotoSLog.i("getHosterList: total servers found = ${tasks.size}")
@@ -550,10 +497,6 @@ class AnikotoS : AnimeHttpSource(), ConfigurableAnimeSource {
                 host.contains("vidtube.site") || host.contains("megaplay.buzz") || host.contains("vidwish.live") -> {
                     AnikotoSLog.d("resolveStreamForTask: ${task.label} -> Flow A (VidTube), host=$host")
                     extractors.resolveVidTube(iframeUrl, task.audioType, hosterName)
-                }
-                host.contains("mewcdn.online") -> {
-                    AnikotoSLog.d("resolveStreamForTask: ${task.label} -> Flow B (Kiwi), host=$host")
-                    extractors.resolveKiwi(iframeUrl, task.audioType, hosterName)
                 }
                 else -> {
                     AnikotoSLog.w("resolveStreamForTask: ${task.label} — UNKNOWN host=$host, skipping")

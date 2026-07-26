@@ -2,10 +2,6 @@ package eu.kanade.tachiyomi.animeextension.en.anikotos
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * All serializable DTOs for the AnikotoS site API.
@@ -63,45 +59,3 @@ data class VidTubeTrack(
     val label: String = "",
     val kind: String = "",
 )
-
-// ── Mapper API: mapper.nekostream.site/api/mal/<mal>/<ep>/<ts> ───────────────
-// Response shape: {"Kiwi-Stream-": {"sub": {"url": "..."}, "dub": {"url": "..."}}, "status": {...}}
-// Keys ending with "-" are server entries.
-
-data class MapperStreamToken(
-    val serverName: String,
-    val audio: String, // "sub" or "dub"
-    val token: String, // actually a URL (base64 token to pass to /ajax/server?get=)
-)
-
-/**
- * Parse the mapper API response into a list of [MapperStreamToken]s.
- * Only processes keys ending with "-" (server entries), looking for "sub" and "dub" children.
- */
-fun parseMapperResponse(obj: JsonObject): List<MapperStreamToken> {
-    val result = mutableListOf<MapperStreamToken>()
-    for ((key, value) in obj) {
-        if (!key.endsWith("-")) continue // skip "status" etc.
-        val serverName = key.removeSuffix("-")
-        val serverObj = try {
-            value.jsonObject
-        } catch (e: Exception) {
-            continue
-        }
-        for (audio in listOf("sub", "dub")) {
-            val url = serverObj[audio]?.let { extractUrl(it) }
-            if (url != null) {
-                result.add(MapperStreamToken(serverName, audio, url))
-            }
-        }
-    }
-    return result
-}
-
-private fun extractUrl(el: JsonElement): String? {
-    return try {
-        el.jsonObject["url"]?.jsonPrimitive?.content
-    } catch (e: Exception) {
-        null
-    }
-}

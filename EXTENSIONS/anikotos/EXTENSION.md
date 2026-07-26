@@ -43,7 +43,7 @@ CI builds a debug APK on every push to `main` (`.github/workflows/build.yml`) an
 
 ## What was removed vs AniKoto 180
 
-AniKoto S is a copy of AniKoto 180 with these two features **completely removed**:
+AniKoto S is a copy of AniKoto 180 with these three features **completely removed**:
 
 1. **Smart Search** (the AI-powered Google AI Search integration, session 51):
    - Deleted `smartsearch/SmartSearch.kt` (entire package)
@@ -64,6 +64,18 @@ AniKoto S is a copy of AniKoto 180 with these two features **completely removed*
    - Removed the metadata-only `postJson()` method + `buildPostJsonJs()` from
      `video/WebViewFetcher.kt` (only EpisodeMetadataFetcher used them)
 
+3. **Kiwi-Stream** (the external mapper.nekostream.site API discovery + resolveKiwi extractor):
+   - Removed the entire PATH B (`mapper.nekostream.site` API call) from `getHosterList` —
+     the extension never queries the mapper, never detects Kiwi-Stream servers
+   - Removed `resolveKiwi()` + `kiwiHeaders()` from `video/AnikotoSExtractors.kt`
+   - Removed the `mewcdn.online` → `resolveKiwi` dispatch branch in `resolveStreamForTask`
+   - Removed `MapperStreamToken` + `parseMapperResponse` + `extractUrl` from `AnikotoSDto.kt`
+     (+ the now-unused `JsonElement`/`JsonObject`/`jsonObject`/`jsonPrimitive` imports)
+   - Removed the `enableKiwi` getter + the entire "Servers" settings category + the
+     `PREF_ENABLE_KIWI_KEY`/`DEFAULT` constants from `AnikotoSSettings.kt`
+   - Removed "Kiwi-Stream" from the preferred-server dropdown options
+   - Updated `Models.kt` comments (HosterTask.source is now always "primary")
+
 > **Note:** `EpisodeMeta.kt` is **NOT** metadata-fetching code — it is the URL-safe encoder for
 > `SEpisode.url` (slug + epNum + malId + timestamp + dataIds + sub/dub flags). The video pipeline
 > (`getHosterList`, `getVideoList`, `getEpisodeUrl`) depends on it, so it is KEPT.
@@ -73,13 +85,13 @@ AniKoto S is a copy of AniKoto 180 with these two features **completely removed*
 - Catalog: popular (`/most-viewed`), latest (`/latest-updated`), search (`/filter?keyword=`),
   filters, details, episode list (RC4 vrf + `EpisodeMeta` encoding).
 - Video servers: VidPlay-1 (OkHttp), HD-1 (WebView CDN), Vidstream-2 (WebView fallback),
-  VidCloud-1 (per-stream Referer), Kiwi-Stream (toggleable, default ON).
+  VidCloud-1 (per-stream Referer). (Kiwi-Stream removed — not discovered, not shown.)
 - Audio/resolution: SUB / HSUB / DUB × 1080p / 720p / 360p.
 - LocalProxyServer segment prefetching + WebView pre-warming in `getEpisodeList`.
 - Fork compatibility: `getVideoList(SEpisode)` override + `/watch/slug/ep-N#fragment` URL format.
 - Promo line: "Thank the Confused_creature_180" appended to every anime description.
 - Logging: logcat-only (tag "AnikotoS"), no file I/O.
-- Settings: 2 categories (Playback, Servers).
+- Settings: 1 category (Playback — quality, audio, buffer, server).
 
 ## Current status (v16.1 Build 1) — 🚧 IN PROGRESS
 

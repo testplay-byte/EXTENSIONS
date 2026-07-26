@@ -7,17 +7,17 @@ package eu.kanade.tachiyomi.animeextension.en.anikotos.video
 
 /** One unit of work: resolve one (server × audio) combo to an [AudioStream]. */
 data class HosterTask(
-    val label: String,       // display label e.g. "SUB - VidPlay-1", "H-SUB - Kiwi-Stream"
-    val token: String,       // data-link-id (primary) or mapper URL (Kiwi)
-    val audioType: String,   // "sub", "hsub", "dub" (primary); "sub"/"dub" (mapper → H-SUB/A-DUB)
-    val source: String,      // "primary" or "mapper"
+    val label: String,       // display label e.g. "SUB - VidPlay-1"
+    val token: String,       // data-link-id (primary server list)
+    val audioType: String,   // "sub", "hsub", "dub"
+    val source: String,      // "primary"
 )
 
 /** A resolved audio stream with its variants and subtitles. */
 data class AudioStream(
     val audioType: String,       // "sub", "hsub", "dub"
-    val audioLabel: String,      // "SUB", "HSUB", "DUB", "H-SUB", "A-DUB"
-    val hosterName: String,      // "VidPlay-1", "HD-1", "Vidstream-2", "Kiwi-Stream"
+    val audioLabel: String,      // "SUB", "HSUB", "DUB"
+    val hosterName: String,      // "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1"
     val variants: List<VariantData>,
     val subtitles: List<SubtitleData>,
     val referer: String,         // ★ per-stream Referer for segment/subtitle fetch (e.g. "https://vidwish.live/")

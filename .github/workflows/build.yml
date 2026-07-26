@@ -1,20 +1,18 @@
-# CI build — builds debug APKs for all extensions on every push/PR to main.
-# This is a sanity check: if any extension stops compiling, this catches it.
-# Release (signed) builds are handled by release.yml (triggered by tags).
-name: Build (CI)
+# CI build — builds ONLY the AniKoto S debug APK on this feature branch.
+# (The main branch's build.yml builds all extensions; this branch only needs the one
+# we're actively working on, for faster feedback while testing.)
+name: Build AniKoto S (CI)
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [anikoto-s]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build debug APKs
+    name: Build AniKoto S debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -35,47 +33,24 @@ jobs:
           ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Grant execute permission for gradlew
-        run: chmod +x EXTENSIONS/*/DEV/gradlew
+        run: chmod +x EXTENSIONS/anikotos/DEV/gradlew
 
-      # Debug builds need no keystore. Each extension is an independent Gradle project.
-      - name: Build AniKoto (debug)
-        working-directory: EXTENSIONS/anikoto/DEV
-        run: ./gradlew :src:en:anikoto:assembleDebug --no-daemon --stacktrace
-
+      # Debug build needs no keystore.
       - name: Build AniKoto S (debug)
         working-directory: EXTENSIONS/anikotos/DEV
         run: ./gradlew :src:en:anikotos:assembleDebug --no-daemon --stacktrace
 
-      - name: Build AnimePahe (debug)
-        working-directory: EXTENSIONS/animepahe/DEV
-        run: ./gradlew :src:en:animepahe:assembleDebug --no-daemon --stacktrace
-
-      - name: Build MKissa (debug)
-        working-directory: EXTENSIONS/mkissa/DEV
-        run: ./gradlew :src:en:mkissa:assembleDebug --no-daemon --stacktrace
-
-      - name: Build AniDB (debug)
-        working-directory: EXTENSIONS/anidb/DEV
-        run: ./gradlew :src:en:anidb:assembleDebug --no-daemon --stacktrace
-
-      - name: Build Re:ANIME (debug)
-        working-directory: EXTENSIONS/reanime/DEV
-        run: ./gradlew :src:en:reanime:assembleDebug --no-daemon --stacktrace
-
-      - name: Build Miruro (debug)
-        working-directory: EXTENSIONS/miruro/DEV
-        run: ./gradlew :src:en:miruro:assembleDebug --no-daemon --stacktrace
-
-      - name: Collect APKs
+      - name: Collect APK
         run: |
           mkdir -p artifacts
-          find EXTENSIONS -path "*/build/outputs/apk/**/*.apk" -exec cp {} artifacts/ \;
+          find EXTENSIONS/anikotos -path "*/build/outputs/apk/**/*.apk" -exec cp {} artifacts/ \;
+          echo "=== APK artifact ==="
           ls -la artifacts/
 
-      - name: Upload APK artifacts
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apks
+          name: anikotos-debug-apk
           path: artifacts/*.apk
           retention-days: 14
           if-no-files-found: error

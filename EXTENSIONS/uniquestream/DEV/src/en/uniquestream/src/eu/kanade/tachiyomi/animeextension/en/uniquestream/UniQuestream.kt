@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
 import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
-import eu.kanade.tachiyomi.animesource.AnimeHttpSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.animesource.model.AnimeFilter
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.animesource.model.AnimesPage
@@ -9,7 +9,9 @@ import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.Video
-import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy.Companion.ALWAYS_UPDATE
+import eu.kanade.tachiyomi.animesource.model.AnimeUpdateStrategy
+import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.awaitSuccess
 import keiyoushi.utils.getPreferencesLazy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -138,7 +140,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                 data.status == "airing" || data.status == "Airing" -> SAnime.ONGOING
                 else -> SAnime.UNKNOWN
             }
-            update_strategy = ALWAYS_UPDATE
+            update_strategy = AnimeUpdateStrategy.ALWAYS_UPDATE
             initialized = true
         }
     }
@@ -164,7 +166,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         for (season in seasons) {
             var page = 1
             while (true) {
-                val url = apiBuilder()
+                val seasonUrl = apiBuilder()
                     .addPathSegment("season")
                     .addPathSegment(season.contentId)
                     .addPathSegment("episodes")
@@ -174,7 +176,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                     .build()
 
                 val items = try {
-                    fetchJson<List<EpisodeDto>>(GET(url.toString(), headers))
+                    fetchJson<List<EpisodeDto>>(GET(seasonUrl.toString(), headers))
                 } catch (_: Exception) {
                     break
                 }
@@ -185,7 +187,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                     episodes.add(SEpisode.create().apply {
                         url = "/episode/${ep.contentId}"
                         name = ep.title ?: "EP ${ep.episode ?: ep.episodeNumber?.toInt() ?: "?"}"
-                        episode_number = ep.episodeNumber ?: ep.episode?.toFloatOrNull() ?: 0f
+                        episode_number = ep.episodeNumber?.toFloat() ?: ep.episode?.toFloatOrNull() ?: 0f
                         date_upload = tryParseDate(ep.availableDate)
                         scanlator = if (hasDub) "SUB \u2022 DUB" else "SUB"
                     })

@@ -483,7 +483,7 @@ data class SeriesDto(
      *   when the user clicks on the anime to get the full details.
      */
     fun toSAnime() = SAnime.create().apply {
-        setUrlWithoutDomain("/series/$contentId")
+        url = "/series/$contentId"
         title = this@SeriesDto.title.ifBlank { "Unknown" }
         thumbnail_url = image
         genre = buildString {

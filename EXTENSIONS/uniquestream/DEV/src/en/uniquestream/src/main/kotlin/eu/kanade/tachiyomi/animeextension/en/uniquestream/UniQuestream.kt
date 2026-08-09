@@ -150,7 +150,8 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
-    override fun getAnimeUrl(anime: SAnime): String = "$baseUrl/series/${anime.url.substringAfter("/series/")}"
+    override fun getAnimeUrl(anime: SAnime): String =
+        "$baseUrl/series/${anime.url.substringAfter("/series/")}"
 
     // ── Episodes ─────────────────────────────────────────────────────
 
@@ -201,7 +202,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                 page++
             }
         }
-        // Return DESCENDING so Aniyomi displays ascending (latest first → reversed to 1, 2, 3…)
+        // Return DESCENDING so Aniyomi displays ascending
         return episodes.sortedByDescending { it.episode_number }
     }
 
@@ -210,67 +211,51 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         return "$baseUrl/watch/$episodeId"
     }
 
-    // ── Video Pipeline (ext-lib 16: hoster-based) ────────────────────
+    // ── Video Pipeline ──────────────────────────────────────────────
+    // Matches the working AniKoto/AnimePahe pattern:
+    //   - Override getHosterList() DIRECTLY (makes HTTP call inside)
+    //   - Set hosterListParse / videoListParse to emptyList()
+    //   - This works on ALL forks (ext-lib 16 and pre-ext-lib-16)
 
-    override fun hosterListRequest(episode: SEpisode): Request {
+    override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val episodeId = episode.url.substringAfter("/episode/")
         val url = "$baseUrl$API/episode/$episodeId/media/dash/ja-JP"
-        return GET(url, headers)
+
+        return try {
+            val response = client.newCall(GET(url, headers)).awaitSuccess()
+            val data = response.parseJson<MediaResponseDto>()
+            val hls = data.hls ?: return emptyList()
+            val videos = buildVideoList(hls, data.contentId)
+
+            listOf(
+                Hoster(
+                    hosterName = Hoster.NO_HOSTER_LIST,
+                    videoList = videos,
+                ),
+            )
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
-    override fun hosterListParse(response: Response): List<Hoster> {
-        val data = response.parseJson<MediaResponseDto>()
-        val hls = data.hls ?: return emptyList()
+    /** Build the video list from the HLS response. */
+    private fun buildVideoList(hls: MediaResponseDto.HlsDto, contentId: String): List<Video> {
         val videos = mutableListOf<Video>()
         val videoHeaders = headersOf("Referer", baseUrl)
 
-        // Original stream (raw audio — SUB)
+        // Original stream (SUB)
         if (hls.playlist != null) {
-            videos.add(
-                Video(
-                    videoUrl = hls.playlist,
-                    videoTitle = "SUB - Auto",
-                    resolution = null,
-                    bitrate = null,
-                    headers = videoHeaders,
-                    preferred = true,
-                    subtitleTracks = emptyList(),
-                    audioTracks = emptyList(),
-                    timestamps = emptyList(),
-                    mpvArgs = emptyList(),
-                    ffmpegStreamArgs = emptyList(),
-                    ffmpegVideoArgs = emptyList(),
-                    internalData = "",
-                    initialized = false,
-                ),
-            )
+            videos.add(makeVideo(hls.playlist, "SUB - Auto", videoHeaders, preferred = true))
         }
 
-        // Hard-sub variants (other subtitle languages)
+        // Hard-sub variants
         for (sub in hls.hardSubs.orEmpty()) {
-            val locale = localeToLabel(sub.locale)
             val playlist = sub.playlist ?: continue
-            videos.add(
-                Video(
-                    videoUrl = playlist,
-                    videoTitle = "SUB ($locale) - Auto",
-                    resolution = null,
-                    bitrate = null,
-                    headers = videoHeaders,
-                    preferred = false,
-                    subtitleTracks = emptyList(),
-                    audioTracks = emptyList(),
-                    timestamps = emptyList(),
-                    mpvArgs = emptyList(),
-                    ffmpegStreamArgs = emptyList(),
-                    ffmpegVideoArgs = emptyList(),
-                    internalData = "",
-                    initialized = false,
-                ),
-            )
+            val locale = localeToLabel(sub.locale)
+            videos.add(makeVideo(playlist, "SUB ($locale) - Auto", videoHeaders))
         }
 
-        // DUB variant (lazy — fetched via resolveVideo)
+        // DUB variant (lazy resolution)
         val originalLocale = hls.locale
         if (originalLocale != "en-US" && originalLocale != "en") {
             videos.add(
@@ -287,32 +272,43 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                     mpvArgs = emptyList(),
                     ffmpegStreamArgs = emptyList(),
                     ffmpegVideoArgs = emptyList(),
-                    internalData = "dub:${data.contentId}",
+                    internalData = "dub:$contentId",
                     initialized = false,
                 ),
             )
         }
 
-        return listOf(
-            Hoster(
-                hosterUrl = "",
-                hosterName = "HLS",
-                videoList = videos,
-            ),
-        )
+        return videos
     }
 
-    // videoListParse is not called since we pre-fill videoList on the Hoster
-    override fun videoListParse(response: Response, hoster: Hoster): List<Video> {
-        return hoster.videoList ?: emptyList()
-    }
+    private fun makeVideo(
+        url: String,
+        title: String,
+        headers: okhttp3.Headers,
+        preferred: Boolean = false,
+    ) = Video(
+        videoUrl = url,
+        videoTitle = title,
+        resolution = null,
+        bitrate = null,
+        headers = headers,
+        preferred = preferred,
+        subtitleTracks = emptyList(),
+        audioTracks = emptyList(),
+        timestamps = emptyList(),
+        mpvArgs = emptyList(),
+        ffmpegStreamArgs = emptyList(),
+        ffmpegVideoArgs = emptyList(),
+        internalData = "",
+        initialized = false,
+    )
 
+    /** Resolve lazy DUB videos. */
     override suspend fun resolveVideo(video: Video): Video? {
         if (video.initialized) return video
         if (video.videoUrl.isNotEmpty()) {
             return video.copy(initialized = true)
         }
-        // Lazy DUB resolution
         if (video.internalData.startsWith("dub:")) {
             val contentId = video.internalData.removePrefix("dub:")
             val url = "$baseUrl$API/episode/$contentId/media/dash/en-US"
@@ -321,10 +317,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                 val data = resp.parseJson<MediaResponseDto>()
                 val playlist = data.hls?.playlist
                 if (playlist != null) {
-                    video.copy(
-                        videoUrl = playlist,
-                        initialized = true,
-                    )
+                    video.copy(videoUrl = playlist, initialized = true)
                 } else {
                     null
                 }
@@ -335,18 +328,21 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         return null
     }
 
-    // ── Legacy pipeline fallback (fork compatibility) ────────────────
-    // Pre-ext-lib-16 forks call getVideoList(episode) directly.
-    // Delegate to the hoster pipeline so both paths work.
+    // hosterListParse / videoListParse are never called (getHosterList is overridden above)
+    override fun hosterListParse(response: Response): List<Hoster> = emptyList()
+
+    override fun videoListParse(response: Response, hoster: Hoster): List<Video> = emptyList()
+
+    // Legacy pipeline fallback — pre-ext-lib-16 forks call getVideoList(episode) directly
+    override fun videoListParse(response: Response): List<Video> = emptyList()
+
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
         return getHosterList(episode).flatMap { it.videoList.orEmpty() }
     }
 
-    // ── Seasons (not used — flat episode list) ───────────────────────
+    // ── Seasons (not used) ───────────────────────────────────────────
 
-    override fun seasonListParse(response: Response): List<SAnime> {
-        return emptyList()
-    }
+    override fun seasonListParse(response: Response): List<SAnime> = emptyList()
 
     // ── Sorting ──────────────────────────────────────────────────────
 

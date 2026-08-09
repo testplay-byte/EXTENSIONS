@@ -16,7 +16,7 @@ android {
         // applicationId ≠ source package → must use FULL extClass path (no dot).
         // See HOW_TO_BUILD_EXTENSION/common-pitfalls.md §extClass + reference-prior-solutions.md §extclass-doubling.
         // Loader code: if sourceClass starts with ".", prepend packageName. Otherwise use as-is.
-        val extVersionCode = 2  // v16.2 (fix: standard AGP source layout to match working extensions)
+        val extVersionCode = 3  // v16.3 (fix: replace keiyoushi.utils with Injekt SharedPreferences)
         val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
         val isNsfw = false
 

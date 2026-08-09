@@ -11,15 +11,22 @@ android {
         // Extension metadata
         val extName = "UniQuestream"
         val extClass = "eu.kanade.tachiyomi.animeextension.en.uniquestream.UniQuestream"
-        val extVersionCode = 1
-        val extVersionId = 1
+        // extClass uses the FULL path (no leading dot).
+        // applicationId = ...en.uniquestream180, source class is in ...en.uniquestream.
+        // applicationId ≠ source package → must use FULL extClass path (no dot).
+        // See HOW_TO_BUILD_EXTENSION/common-pitfalls.md §extClass + reference-prior-solutions.md §extclass-doubling.
+        // Loader code: if sourceClass starts with ".", prepend packageName. Otherwise use as-is.
+        val extVersionCode = 2  // v16.2 (fix: standard AGP source layout to match working extensions)
+        val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
         val isNsfw = false
 
         applicationIdSuffix = "en.uniquestream180"
 
+        // ★ ext-lib 16: versionName MUST start with "16." (loader rejects <12 or >16)
         versionCode = extVersionCode
-        versionName = "16.1"
+        versionName = "16.$extVersionCode"
 
+        // ★ filename uses uniquestream180 to match the new package name
         base.archivesName.set("aniyomi-en.uniquestream180-v$versionName")
 
         // Manifest placeholders (filled into common/AndroidManifest.xml)
@@ -53,11 +60,11 @@ android {
         jvmTarget = "17"
     }
 
-    // Source sets: Kotlin files go directly in src/ (not src/main/kotlin/)
+    // Source sets: standard AGP layout (src/main/kotlin + src/main/java)
+    // Extension code + ext-lib stubs are both in src/main/kotlin/
     sourceSets {
         getByName("main") {
             manifest.srcFile(rootProject.file("common/AndroidManifest.xml"))
-            java.srcDirs("src")
             res.srcDirs("res")
             assets.srcDirs("assets")
         }

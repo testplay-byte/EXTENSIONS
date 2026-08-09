@@ -66,6 +66,38 @@ jobs:
         working-directory: EXTENSIONS/uniquestream/DEV
         run: ./gradlew :src:en:uniquestream:assembleDebug --no-daemon --stacktrace
 
+      - name: Verify UniQuestream APK manifest & DEX
+        run: |
+          APK=$(find EXTENSIONS/uniquestream -path "*/build/outputs/apk/debug/*.apk" | head -1)
+          echo "=== APK: $APK ==="
+
+          # 1. Verify extClass in manifest
+          EXT_CLASS=$(aapt2 dump xmltree "$APK" 2>/dev/null | grep -A1 'tachiyomi.animeextension.class' | tail -1 | grep -oP '(?<=").*(?=")' || true)
+          echo "extClass in manifest: '$EXT_CLASS'"
+          if [ "$EXT_CLASS" != "eu.kanade.tachiyomi.animeextension.en.uniquestream.UniQuestream" ]; then
+            echo "❌ FAIL: extClass mismatch! Expected 'eu.kanade.tachiyomi.animeextension.en.uniquestream.UniQuestream', got '$EXT_CLASS'"
+            exit 1
+          fi
+          echo "✅ extClass matches"
+
+          # 2. Verify extension class exists in DEX
+          CLASS_REFS=$(unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -c 'eu/kanade/tachiyomi/animeextension/en/uniquestream/UniQuestream' || echo 0)
+          echo "UniQuestream class refs in DEX: $CLASS_REFS"
+          if [ "$CLASS_REFS" -eq 0 ]; then
+            echo "❌ FAIL: Extension class not found in DEX!"
+            exit 1
+          fi
+          echo "✅ Extension class found in DEX"
+
+          # 3. Verify no stubs leaked into APK
+          STUB_COUNT=$(unzip -p "$APK" classes.dex 2>/dev/null | strings | grep -c 'Stub!' || echo 0)
+          echo "Stub! strings in DEX: $STUB_COUNT"
+          if [ "$STUB_COUNT" -gt 0 ]; then
+            echo "❌ FAIL: Stubs leaked into APK ($STUB_COUNT occurrences)!"
+            exit 1
+          fi
+          echo "✅ No stubs in APK"
+
       - name: Collect APKs
         run: |
           mkdir -p artifacts

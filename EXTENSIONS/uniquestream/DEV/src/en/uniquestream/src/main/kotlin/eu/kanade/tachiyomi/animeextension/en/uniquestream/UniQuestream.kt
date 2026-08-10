@@ -33,7 +33,7 @@ import uy.kohesive.injekt.api.get
 /**
  * UniQuestream — Aniyomi extension for anime.uniquestream.net
  *
- * Video pipeline (ext-lib 16, v16.14 — Anikoto-style):
+ * Video pipeline (ext-lib 16, v16.15 — server-side AES-128 decryption):
  *   - Override getHosterList() directly (NOT videoListParse)
  *   - Single API call per episode: /api/v1/episode/{id}/media/dash/{locale}
  *   - getHosterList FETCHES the master m3u8 itself, PARSES it to extract
@@ -41,15 +41,11 @@ import uy.kohesive.injekt.api.get
  *     URLs directly (no master m3u8 in the player's view).
  *   - HLS proxy on 127.0.0.1 routes variant m3u8 + segment requests through
  *     the extension's OkHttpClient (CDN is behind Cloudflare).
+ *   - **AES-128 decryption**: The CDN encrypts TS segments with AES-128.
+ *     The proxy detects #EXT-X-KEY, fetches the 16-byte key, strips
+ *     encryption tags from m3u8, and decrypts segments server-side.
+ *     The player receives plain, unencrypted MPEG-TS data.
  *   - Auto-try-next: resolveVideo returns null on failure.
- *
- * Why v16.14 redesign works:
- *   - Previous versions passed the master m3u8 through the proxy to MPV.
- *     Multiple failure points: CDN 403, HTML challenge pages,
- *     URI= in STREAM-INF not being rewritten, etc.
- *   - Now the master is fetched during getHosterList (using extension's client
- *     which bypasses Cloudflare), parsed in Kotlin, and only variant URLs
- *     are given to the player. One fewer hop, much more reliable.
  */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
@@ -98,22 +94,29 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
     // -- Master m3u8 parsing --------------------------------------
 
     private fun fetchMasterM3u8(masterUrl: String): String? {
-        logV("fetchMasterM3u8: fetching ${trunc(masterUrl, 120)}")
+        logV("fetchMasterM3u8: START fetching ${trunc(masterUrl, 120)}")
         try {
             val request = Request.Builder()
                 .url(masterUrl)
                 .headers(proxyUpstreamHeaders)
                 .build()
+            val startTime = System.currentTimeMillis()
             val response = client.newCall(request).execute()
+            val elapsed = System.currentTimeMillis() - startTime
             val code = response.code
             val contentType = response.header("Content-Type") ?: ""
             val body = response.body?.string()
+            val contentLength = response.header("Content-Length")
             response.close()
 
-            logV("fetchMasterM3u8: HTTP $code ct=$contentType len=${body?.length ?: 0}")
+            logV("fetchMasterM3u8: HTTP $code ct=$contentType len=${body?.length ?: 0} contentLength=$contentLength took=${elapsed}ms url=${trunc(masterUrl, 100)}")
 
             if (code != 200 || body == null) {
-                logVE("fetchMasterM3u8: failed HTTP $code")
+                logVE("fetchMasterM3u8: FAILED HTTP $code, body=${body != null}")
+                // Log first 300 chars of body if it looks like an error page
+                if (body != null && !body.trimStart().startsWith("#EXTM3U")) {
+                    logVE("fetchMasterM3u8: non-m3u8 response: ${trunc(body, 300)}")
+                }
                 return null
             }
 
@@ -123,9 +126,19 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                 return null
             }
 
+            // Check if master has any EXT-X-KEY (encryption) — shouldn't be in master but log it
+            val hasKey = body.lines().any { it.trim().startsWith("#EXT-X-KEY") }
+            if (hasKey) {
+                logV("fetchMasterM3u8: NOTE - master m3u8 contains #EXT-X-KEY (unusual for master)")
+            }
+
+            // Count variants (EXT-X-STREAM-INF lines)
+            val streamCount = body.lines().count { it.trim().startsWith("#EXT-X-STREAM-INF") }
+            logV("fetchMasterM3u8: OK, $streamCount variant(s) detected, took=${elapsed}ms")
+
             return body
         } catch (e: Exception) {
-            logVE("fetchMasterM3u8: FAILED", e)
+            logVE("fetchMasterM3u8: EXCEPTION - ${e.javaClass.simpleName}: ${e.message}", e)
             return null
         }
     }
@@ -512,13 +525,26 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
     )
 
     override suspend fun resolveVideo(video: Video): Video? {
-        logV("resolveVideo: '${video.videoTitle}' url=${trunc(video.videoUrl, 150)}")
-        if (video.initialized) return video
-        if (video.videoUrl.isBlank() || !video.videoUrl.contains("127.0.0.1")) {
-            logVE("resolveVideo: invalid URL -> null")
+        logV("resolveVideo: START title='${video.videoTitle}' url=${trunc(video.videoUrl, 150)} initialized=${video.initialized}")
+        if (video.initialized) {
+            logV("resolveVideo: already initialized, returning as-is")
+            return video
+        }
+        if (video.videoUrl.isBlank()) {
+            logVE("resolveVideo: blank URL -> null")
             return null
         }
-        logV("resolveVideo: OK")
+        if (!video.videoUrl.contains("127.0.0.1")) {
+            logVE("resolveVideo: URL is NOT a proxy URL (no 127.0.0.1) -> null. URL=${trunc(video.videoUrl, 150)}")
+            return null
+        }
+        // Verify proxy is still running
+        val proxy = hlsProxy
+        if (proxy == null || !proxy.isRunning) {
+            logVE("resolveVideo: proxy is null or not running! Cannot serve video.")
+            return null
+        }
+        logV("resolveVideo: OK (proxy running at ${video.videoUrl.substringBefore("/p/")})")
         return video.copy(initialized = true)
     }
 

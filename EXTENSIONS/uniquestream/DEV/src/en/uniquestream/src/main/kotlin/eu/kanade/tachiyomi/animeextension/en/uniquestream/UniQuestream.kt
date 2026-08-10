@@ -33,18 +33,26 @@ import uy.kohesive.injekt.api.get
 /**
  * UniQuestream — Aniyomi extension for anime.uniquestream.net
  *
- * Video pipeline (ext-lib 16, v16.17 — URL-rewriting proxy, ExoPlayer handles decryption):
+ * Video pipeline (ext-lib 16, v16.18 — Correct Referer headers + master playlist for audio):
  *   - Override getHosterList() directly (NOT videoListParse)
  *   - Single API call per episode: /api/v1/episode/{id}/media/dash/{locale}
- *   - getHosterList FETCHES the master m3u8 itself, PARSES it to extract
- *     variant playlists, and returns Video objects pointing to VARIANT proxy
- *     URLs directly (no master m3u8 in the player's view).
- *   - HLS proxy on 127.0.0.1 routes variant m3u8 + segment + key requests
- *     through the extension's OkHttpClient (CDN is behind Cloudflare).
- *   - **AES-128 decryption**: The CDN encrypts TS segments with AES-128.
- *     The proxy keeps the #EXT-X-KEY tag and rewrites its key URI to a
- *     proxy URL. ExoPlayer fetches the key through our proxy and handles
- *     AES-128 decryption natively (well-tested, no custom crypto code).
+ *   - getHosterList FETCHES the master m3u8, VERIFIES it's valid,
+ *     then registers the master URL with the proxy.
+ *   - Returns Videos pointing to the MASTER proxy URL.
+ *   - ExoPlayer requests the master from proxy → proxy rewrites ALL URLs
+ *     (video variants, audio playlist, iframes) with correct Referer headers.
+ *   - HLS proxy on 127.0.0.1 routes ALL requests through extension's OkHttpClient.
+ *   - **CDN Referer fix (ROOT CAUSE of v16.6-v16.17 failures)**:
+ *     The CDN (get2.mediacache.cc / openresty) requires:
+ *       - Master m3u8: Referer=anime.uniquestream.net
+ *       - Sub-resources (variants, segments, keys): Referer=<parent-resource-URL>
+ *     v16.17 sent Referer=anime.uniquestream.net for ALL requests → 403.
+ *     v16.18 tracks per-URL Referer: master→anime.uniquestream.net,
+ *     variant→master-URL, segment/key→variant-URL.
+ *   - **AES-128 decryption**: Proxy keeps #EXT-X-KEY tag, rewrites key URI.
+ *     ExoPlayer handles AES-128 decryption natively.
+ *   - **Audio**: Master playlist has separate #EXT-X-MEDIA audio stream.
+ *     Serving master (not individual variants) lets ExoPlayer discover both.
  *   - Auto-try-next: resolveVideo returns null on failure.
  */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
@@ -483,18 +491,26 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         isPreferredAudio: Boolean,
         subtitleTracks: List<Track>,
     ): List<Video> {
+        // CRITICAL: Tell the proxy to use this master URL as Referer for sub-resource fetches.
+        // The CDN requires Referer=<master-url> for sub-resource requests (confirmed by testing).
+        proxy.setCdnMasterReferer(masterUrl)
+
+        // Verify the master is reachable (quick fetch)
         val masterText = fetchMasterM3u8(masterUrl)
         if (masterText != null) {
             val variants = parseMasterM3u8(masterText, masterUrl)
             if (variants.isNotEmpty()) {
-                logV("buildVideos: parsed ${variants.size} variants")
-                return variants.mapIndexed { index, variant ->
-                    val proxyUrl = proxy.registerUrl(variant.url, isM3u8 = true)
-                    val title = "$audioLabel - ${variant.qualityLabel}"
-                    val preferred = isPreferredAudio && index == 0
-                    logV("buildVideos: $title -> $proxyUrl")
-                    makeVideo(proxyUrl, title, variant.resolution, preferred, subtitleTracks)
-                }
+                logV("buildVideos: master OK, ${variants.size} variant(s) found")
+
+                // Serve the MASTER playlist through the proxy (not individual variants).
+                // The master has separate audio (#EXT-X-MEDIA) and video streams.
+                // ExoPlayer needs the master to discover both audio and video.
+                // The proxy will rewrite all URLs (video variants, audio, iframes) when
+                // ExoPlayer requests the master, with correct Referer headers.
+                val proxyUrl = proxy.registerUrl(masterUrl, referer = baseUrl, isM3u8 = true)
+                val title = "$audioLabel - Auto"
+                logV("buildVideos: serving master via proxy: $proxyUrl")
+                return listOf(makeVideo(proxyUrl, title, null, isPreferredAudio, subtitleTracks))
             }
             logW("buildVideos: master OK but 0 variants (single-quality?)")
         } else {
@@ -503,7 +519,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
         // Fallback: proxy the master URL as-is
         logV("buildVideos: FALLBACK -> proxy master as single variant")
-        val proxyUrl = proxy.registerUrl(masterUrl, isM3u8 = true)
+        val proxyUrl = proxy.registerUrl(masterUrl, referer = baseUrl, isM3u8 = true)
         return listOf(makeVideo(proxyUrl, "$audioLabel - Auto", null, isPreferredAudio, subtitleTracks))
     }
 

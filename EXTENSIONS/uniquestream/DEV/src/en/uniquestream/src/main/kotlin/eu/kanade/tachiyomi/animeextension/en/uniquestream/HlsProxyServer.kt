@@ -1,30 +1,23 @@
 /**
  * Local HTTP proxy for HLS playback through Cloudflare-protected CDN.
  *
- * Architecture (v16.17 — URL-rewriting proxy, ExoPlayer handles AES-128 decryption):
- *   - The caller (getHosterList) fetches and parses the master m3u8 itself,
- *     then registers each variant playlist URL here.
- *   - The player receives a DIRECT variant playlist URL (no master involved).
- *   - When the player requests a variant URL, the proxy:
- *     1. Fetches the real variant m3u8 from CDN (via our OkHttpClient → Cloudflare OK)
- *     2. Rewrites ALL URLs to proxy URLs (segments, key URI, init segments, etc.)
- *     3. Keeps #EXT-X-KEY tag INTACT (just rewrites the key URI to a proxy URL)
- *     4. Serves the rewritten variant m3u8 to ExoPlayer
- *   - When the player requests a segment/key/init:
- *     1. Fetches from CDN through our OkHttpClient (Cloudflare bypass)
- *     2. Serves the raw bytes as-is
- *   - ExoPlayer sees the #EXT-X-KEY tag, fetches the key from our proxy,
- *     and handles AES-128 decryption natively (it's a core, well-tested ExoPlayer feature).
+ * Architecture (v16.18 — Correct Referer headers + URL-rewriting):
  *
- * Why this approach (not server-side decryption like v16.15/v16.16):
- *   - v16.15/v16.16 tried server-side AES-128 decryption — still failed.
- *   - Server-side decryption has many failure points: key fetch, IV parsing,
- *     per-segment IV computation, padding mode, data validation.
- *   - If key fetch failed, the old code stripped #EXT-X-KEY and served encrypted
- *     data as plain → guaranteed "unrecognized file format" error.
- *   - ExoPlayer's built-in AES-128 is battle-tested and handles all edge cases.
- *   - By keeping #EXT-X-KEY and proxying the key URI, we let ExoPlayer do
- *     what it does best while the proxy handles Cloudflare.
+ * ROOT CAUSE of v16.17 failure (confirmed by Python testing):
+ *   The CDN (get2.mediacache.cc / openresty) has hotlink protection:
+ *   - Master m3u8: accepts Referer=https://anime.uniquestream.net
+ *   - Variant/segments/keys: require Referer=<master-m3u8-URL>
+ *   - v16.17 sent Referer=anime.uniquestream.net for ALL requests → 403 for sub-resources
+ *
+ * Fix:
+ *   - Store the master m3u8 URL as cdnReferer when it's registered
+ *   - When the proxy rewrites a variant m3u8, store the variant URL
+ *   - Each registered URL tracks its "referer" — the URL that should be
+ *     sent as Referer when fetching it upstream
+ *   - Master URL → Referer: anime.uniquestream.net (set by caller)
+ *   - Variant URL → Referer: master URL
+ *   - Segments/keys/init → Referer: variant URL (set during rewriteM3u8)
+ *   - ExoPlayer handles AES-128 decryption natively (no custom crypto)
  */
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
@@ -46,7 +39,7 @@ import okhttp3.Request
 
 class HlsProxyServer(
     private val client: OkHttpClient,
-    private val upstreamHeaders: Headers,
+    private val defaultUpstreamHeaders: Headers,
 ) {
     companion object {
         private const val TAG = "UQ-Proxy"
@@ -62,8 +55,16 @@ class HlsProxyServer(
     private val lastActivity = AtomicLong(System.currentTimeMillis())
     private val nextId = AtomicInteger(0)
 
-    /** Maps proxy path ID -> real absolute upstream URL. */
-    private val urlMap = ConcurrentHashMap<Int, String>()
+    /** Maps proxy path ID -> (real absolute upstream URL, Referer URL to use). */
+    private data class UrlEntry(val realUrl: String, val referer: String)
+    private val urlMap = ConcurrentHashMap<Int, UrlEntry>()
+
+    /**
+     * The master m3u8 URL on the CDN. Used as the Referer when fetching
+     * variant playlists (and as fallback for any CDN request).
+     */
+    @Volatile
+    private var cdnMasterReferer: String = ""
 
     private val executor = Executors.newCachedThreadPool { r ->
         Thread(r, "UQ-Proxy").apply { isDaemon = true }
@@ -75,26 +76,31 @@ class HlsProxyServer(
 
     // -- Public API ---------------------------------------------------
 
-    /** Register a URL and get a proxy URL + ID. */
-    private fun registerUrlInternal(realUrl: String, isM3u8: Boolean): Pair<String, Int> {
+    /**
+     * Set the CDN master m3u8 URL. This is used as the Referer for
+     * fetching variant playlists and other sub-resources.
+     */
+    fun setCdnMasterReferer(masterUrl: String) {
+        cdnMasterReferer = masterUrl
+        logI("CDN master referer set: ${trunc(masterUrl, 150)}")
+    }
+
+    /** Register a URL with a specific Referer and get a proxy URL. */
+    fun registerUrl(realUrl: String, referer: String = "", isM3u8: Boolean = false): String {
         ensureStarted()
         val id = nextId.getAndIncrement()
-        urlMap[id] = realUrl
+        urlMap[id] = UrlEntry(realUrl, referer.ifBlank { cdnMasterReferer.ifBlank { "https://anime.uniquestream.net" } })
         val suffix = if (isM3u8) ".m3u8" else ""
         val proxyUrl = "$baseUrl/p/$id$suffix"
-        logD("Registered /p/$id$suffix -> ${trunc(realUrl, 120)}")
-        return Pair(proxyUrl, id)
+        logD("Registered /p/$id$suffix -> ${trunc(realUrl, 120)} referer=${trunc(urlMap[id]!!.referer, 100)}")
+        return proxyUrl
     }
 
-    /** Public register that only returns the URL (used by UniQuestream.kt). */
-    fun registerUrl(realUrl: String, isM3u8: Boolean = false): String {
-        return registerUrlInternal(realUrl, isM3u8).first
-    }
-
-    /** Clear all registered URLs (call when switching episodes). */
+    /** Clear all registered URLs and CDN referer (call when switching episodes). */
     fun clearUrls() {
         urlMap.clear()
-        logD("URL map cleared")
+        cdnMasterReferer = ""
+        logD("URL map and CDN referer cleared")
     }
 
     /** Stop the proxy server. */
@@ -104,6 +110,7 @@ class HlsProxyServer(
         acceptThread?.interrupt()
         executor.shutdownNow()
         urlMap.clear()
+        cdnMasterReferer = ""
         logI("Proxy stopped")
     }
 
@@ -157,7 +164,6 @@ class HlsProxyServer(
             val requestLine = readLine(input) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 3 || parts[0] != "GET") {
-                logD("handleRequest: non-GET request: $requestLine")
                 sendResponse(output, 405, "Method Not Allowed", "text/plain", "Method Not Allowed".toByteArray())
                 return
             }
@@ -172,7 +178,6 @@ class HlsProxyServer(
                 headerCount++
                 if (line.isEmpty()) break
             }
-            logD("handleRequest: $path (drained $headerCount headers)")
 
             routeRequest(path, output)
         } catch (e: SocketException) {
@@ -196,7 +201,6 @@ class HlsProxyServer(
                 }
                 serveProxied(id, output)
             } else {
-                logD("routeRequest: 404 for $path")
                 sendResponse(output, 404, "Not Found", "text/plain", "Not Found".toByteArray())
             }
         } catch (e: SocketException) {
@@ -210,18 +214,30 @@ class HlsProxyServer(
     // -- Fetch upstream and serve --------------------------------------
 
     private fun serveProxied(id: Int, output: OutputStream) {
-        val realUrl = urlMap[id]
-        if (realUrl == null) {
-            logE("/p/$id: URL not found in map. Registered count=${urlMap.size}, keys=${urlMap.keys.take(5)}")
+        val entry = urlMap[id]
+        if (entry == null) {
+            logE("/p/$id: URL not found. Registered count=${urlMap.size}, keys=${urlMap.keys.take(5)}")
             return sendResponse(output, 404, "Not Found", "text/plain", "URL expired".toByteArray())
         }
 
-        logD("PROXY /p/$id -> ${trunc(realUrl, 150)}")
+        val realUrl = entry.realUrl
+        val referer = entry.referer
+        logD("PROXY /p/$id -> ${trunc(realUrl, 150)} referer=${trunc(referer, 100)}")
 
         try {
+            // Build headers with the CORRECT Referer for this specific URL.
+            // CDN hotlink protection requires:
+            //   - Referer = parent resource URL (master for variants, variant for segments)
+            //   - Origin = anime.uniquestream.net (the site domain, for CORS)
+            val headers = Headers.Builder()
+                .add("Referer", referer)
+                .add("Origin", defaultUpstreamHeaders["Origin"] ?: "https://anime.uniquestream.net")
+                .add("User-Agent", defaultUpstreamHeaders["User-Agent"] ?: "Mozilla/5.0")
+                .build()
+
             val request = Request.Builder()
                 .url(realUrl)
-                .headers(upstreamHeaders)
+                .headers(headers)
                 .build()
             val response = client.newCall(request).execute()
             val code = response.code
@@ -262,16 +278,15 @@ class HlsProxyServer(
                 val hasExtXKey = keyLines.isNotEmpty()
                 logI("PROXY: m3u8 ${bytes.size}B, has #EXT-X-KEY = $hasExtXKey${if (hasExtXKey) " (${keyLines.size} tag(s))" else ""}")
                 if (hasExtXKey) {
-                    // Log the first key tag for debugging
                     logI("PROXY: first #EXT-X-KEY: ${trunc(keyLines.first(), 200)}")
                 }
 
-                // Count segments for logging
                 val segCount = text.lines().count { !it.trim().startsWith("#") && it.trim().isNotEmpty() }
                 logI("PROXY: m3u8 has $segCount segment(s)")
 
                 // Rewrite the m3u8: rewrite ALL URLs to proxy URLs
-                // Keep #EXT-X-KEY tag intact — just rewrite its URI to a proxy URL
+                // Keep #EXT-X-KEY tag intact — just rewrite its key URI to a proxy URL
+                // Segments/keys get Referer = the real variant URL
                 val rewritten = rewriteM3u8(text, realUrl, id)
                 logI("PROXY: Rewrote m3u8 ${bytes.size}B -> ${rewritten.length}B")
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
@@ -296,18 +311,15 @@ class HlsProxyServer(
 
     /** Guess content type from URL and magic bytes. */
     private fun guessContentType(url: String, bytes: ByteArray): String {
-        // Check for MP4 box signature (fMP4 / CMAF)
         if (bytes.size >= 8) {
             val boxType = String(bytes, 4, 4)
             if (boxType == "ftyp" || boxType == "moof" || boxType == "styp") {
                 return "video/mp4"
             }
         }
-        // Check for MPEG-TS sync byte
         if (bytes.isNotEmpty() && bytes[0] == 0x47.toByte()) {
             return "video/MP2T"
         }
-        // Fall back to URL extension
         return when {
             url.contains(".ts") -> "video/MP2T"
             url.contains(".m4s") -> "video/mp4"
@@ -321,8 +333,7 @@ class HlsProxyServer(
 
     /**
      * Rewrite a variant m3u8: rewrite ALL URLs to proxy URLs.
-     * Keeps #EXT-X-KEY tag intact (ExoPlayer handles decryption).
-     * All relative URLs are resolved to absolute before registration.
+     * Segments/keys/init get Referer = the real variant URL (upstreamUrl).
      */
     private fun rewriteM3u8(m3u8: String, upstreamUrl: String, variantId: Int): String {
         val baseDir = upstreamUrl.substringBeforeLast("/") + "/"
@@ -338,24 +349,23 @@ class HlsProxyServer(
                 continue
             }
 
-            // Handle #EXT-X-KEY tag: rewrite URI attribute but KEEP the tag
-            // ExoPlayer needs this tag to know about encryption and fetch the key
             if (trimmed.startsWith("#EXT-X-KEY:")) {
-                val rewritten = rewriteKeyTag(trimmed, baseDir)
+                val rewritten = rewriteKeyTag(trimmed, baseDir, upstreamUrl)
                 result.appendLine(rewritten)
-                logI("M3U8 /p/$variantId: Rewrote #EXT-X-KEY key URI to proxy URL")
                 continue
             }
 
-            // Other tags: rewrite URI/URL attributes (e.g. #EXT-X-MAP:URI="init.mp4")
             if (trimmed.startsWith("#")) {
-                result.appendLine(rewriteTagAttrs(trimmed, baseDir))
+                result.appendLine(rewriteTagAttrs(trimmed, baseDir, upstreamUrl))
                 continue
             }
 
-            // Bare URL = segment. Resolve to absolute first, then register.
+            // Bare URL = segment or sub-playlist. Resolve to absolute, then register.
+            // For master playlists, bare URLs are variant/audio playlists (.m3u8).
+            // For variant playlists, bare URLs are segments (.ts, .m4s).
             val absoluteUrl = resolveUrl(baseDir, trimmed)
-            val (proxyUrl, _) = registerUrlInternal(absoluteUrl, isM3u8 = false)
+            val looksLikeM3u8 = absoluteUrl.contains(".m3u8")
+            val proxyUrl = registerUrl(absoluteUrl, referer = upstreamUrl, isM3u8 = looksLikeM3u8)
             result.appendLine(proxyUrl)
             segmentCount++
         }
@@ -366,30 +376,29 @@ class HlsProxyServer(
 
     /**
      * Rewrite a #EXT-X-KEY tag: replace the URI with a proxy URL.
-     * Keeps ALL other attributes (METHOD, IV, KEYFORMAT, etc.) intact.
+     * The key gets Referer = the variant URL (upstreamUrl).
      */
-    private fun rewriteKeyTag(tagLine: String, baseDir: String): String {
+    private fun rewriteKeyTag(tagLine: String, baseDir: String, variantUrl: String): String {
         val uriMatch = Regex("URI=\"([^\"]+)\"").find(tagLine)
         if (uriMatch == null) {
             logW("rewriteKeyTag: no URI= in #EXT-X-KEY! Tag: ${trunc(tagLine, 200)}")
-            return tagLine // pass through as-is
+            return tagLine
         }
 
         val keyRelativeUrl = uriMatch.groupValues[1]
         val keyAbsoluteUrl = resolveUrl(baseDir, keyRelativeUrl)
-        val (proxyUrl, proxyId) = registerUrlInternal(keyAbsoluteUrl, isM3u8 = false)
+        val proxyUrl = registerUrl(keyAbsoluteUrl, referer = variantUrl, isM3u8 = false)
 
-        logI("rewriteKeyTag: /p/$proxyId key ${trunc(keyAbsoluteUrl, 100)} -> $proxyUrl")
+        logI("rewriteKeyTag: key ${trunc(keyAbsoluteUrl, 100)} -> $proxyUrl (referer=variant)")
 
-        // Replace just the URI value, keep everything else
         return tagLine.replace(
             "URI=\"${uriMatch.groupValues[1]}\"",
             "URI=\"$proxyUrl\""
         )
     }
 
-    /** Rewrite URI/URL attributes in HLS tags (e.g. #EXT-X-MAP:URI="init.mp4"). */
-    private fun rewriteTagAttrs(line: String, baseDir: String): String {
+    /** Rewrite URI/URL attributes in HLS tags. */
+    private fun rewriteTagAttrs(line: String, baseDir: String, variantUrl: String): String {
         val regex = Regex("(URI|URL)=\"([^\"]+)\"")
         return regex.replace(line) { match ->
             val attr = match.groupValues[1]
@@ -399,7 +408,7 @@ class HlsProxyServer(
             } else {
                 val absoluteUrl = resolveUrl(baseDir, value)
                 val looksLikeM3u8 = absoluteUrl.contains(".m3u8")
-                val (proxyUrl, _) = registerUrlInternal(absoluteUrl, isM3u8 = looksLikeM3u8)
+                val proxyUrl = registerUrl(absoluteUrl, referer = variantUrl, isM3u8 = looksLikeM3u8)
                 "$attr=\"$proxyUrl\""
             }
         }

@@ -20,8 +20,10 @@ import eu.kanade.tachiyomi.network.awaitSuccess
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import okhttp3.Headers
 import okhttp3.Headers.Companion.headersOf
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.Injekt
@@ -46,6 +48,32 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0)
+    }
+
+    // ── HLS proxy for PNG-wrapped segments ─────────────────────
+    // The CDN (get.mediacache.cc) wraps HLS segments as PNG files.
+    // ExoPlayer can't demux PNG bytes → video fails to play.
+    // This local proxy strips the PNG header from each segment.
+    private val proxyClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .build()
+    }
+    private val proxySegmentHeaders: Headers by lazy {
+        Headers.Builder()
+            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .set("Referer", baseUrl)
+            .build()
+    }
+    private var hlsProxy: HlsProxyServer? = null
+
+    private fun ensureProxy(): String {
+        var proxy = hlsProxy
+        if (proxy == null || !proxy.running) {
+            proxy = HlsProxyServer(proxyClient, proxySegmentHeaders)
+            proxy.start()
+            hlsProxy = proxy
+        }
+        return proxy.baseUrl
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -378,6 +406,9 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             return emptyList()
         }
 
+        // Start the HLS proxy (strips PNG-wrapped segment headers)
+        val proxyBaseUrl = ensureProxy()
+
         // Find the original (Japanese) and English dub versions
         val original = allVersions.find { it.original == true }
         val englishDub = allVersions.find {
@@ -394,15 +425,17 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
             // Original playlist (no burned-in subs — player handles soft subs)
             original.playlist?.let { playlistUrl ->
-                videos.add(makeVideo(playlistUrl, "Sub - Auto", isPreferred))
+                val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
+                videos.add(makeVideo(proxyUrl, "Sub - Auto", isPreferred))
             }
 
             // Hard-sub variants (separate video streams with burned-in subtitles)
             for (hs in original.hardSubs.orEmpty()) {
                 hs.playlist?.let { playlistUrl ->
+                    val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
                     videos.add(
                         makeVideo(
-                            playlistUrl,
+                            proxyUrl,
                             "Sub (${localeToLabel(hs.locale)})",
                             false,
                         ),
@@ -427,15 +460,17 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
             // English dub main playlist
             englishDub.playlist?.let { playlistUrl ->
-                videos.add(makeVideo(playlistUrl, "Dub - Auto", isPreferred))
+                val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
+                videos.add(makeVideo(proxyUrl, "Dub - Auto", isPreferred))
             }
 
             // Hard-sub variants for English dub (e.g., Spanish hard-subs on English audio)
             for (hs in englishDub.hardSubs.orEmpty()) {
                 hs.playlist?.let { playlistUrl ->
+                    val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
                     videos.add(
                         makeVideo(
-                            playlistUrl,
+                            proxyUrl,
                             "Dub (${localeToLabel(hs.locale)})",
                             false,
                         ),
@@ -468,7 +503,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         videoTitle = title,
         resolution = null,
         bitrate = null,
-        headers = headersOf("Referer", baseUrl),
+        headers = null, // No headers needed — proxy handles upstream headers
         preferred = preferred,
         subtitleTracks = emptyList(),
         audioTracks = emptyList(),

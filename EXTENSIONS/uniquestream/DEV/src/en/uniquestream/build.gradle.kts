@@ -16,7 +16,7 @@ android {
         // applicationId ≠ source package → must use FULL extClass path (no dot).
         // See HOW_TO_BUILD_EXTENSION/common-pitfalls.md §extClass + reference-prior-solutions.md §extclass-doubling.
         // Loader code: if sourceClass starts with ".", prepend packageName. Otherwise use as-is.
-        val extVersionCode = 7  // v16.7 (fix episodes: API limit 100→20 — server max is 20)
+        val extVersionCode = 8  // v16.8 (fix video: HLS proxy strips PNG-wrapped segment headers)
         val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
         val isNsfw = false
 

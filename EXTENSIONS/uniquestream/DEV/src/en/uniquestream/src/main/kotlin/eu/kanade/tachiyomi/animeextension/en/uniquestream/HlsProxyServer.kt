@@ -1,19 +1,20 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
 import android.util.Log
-import okhttp3.Headers
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import java.io.InputStream
 import java.io.OutputStream
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.net.SocketException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import okhttp3.Headers
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 /**
  * Local HTTP proxy for HLS playback through Cloudflare-protected CDN.
@@ -140,6 +141,9 @@ class HlsProxyServer(
             }
 
             routeRequest(path, output)
+        } catch (e: SocketException) {
+            // Player closed the connection — normal when switching quality/server
+            logD("Connection closed by player (normal)")
         } catch (e: Exception) {
             Log.e(TAG, "handleRequest error", e)
         } finally {
@@ -165,8 +169,8 @@ class HlsProxyServer(
                 }
                 else -> sendResponse(output, 404, "Not Found", "text/plain", "Not Found".toByteArray())
             }
-        } catch (e: java.net.SocketException) {
-            logD("Connection closed by player (normal)")
+        } catch (e: SocketException) {
+            logD("Connection closed by player during ${path} (normal)")
         } catch (e: Exception) {
             Log.e(TAG, "routeRequest error for $path", e)
             try { sendResponse(output, 500, "Internal Server Error", "text/plain", "Error".toByteArray()) } catch (_: Exception) {}
@@ -216,22 +220,25 @@ class HlsProxyServer(
             if (isM3u8) {
                 val text = String(bytes, Charsets.UTF_8)
                 if (isMaster) {
-                    logD("$label m3u8 content (first 400): ${trunc(text, 400)}")
+                    // Log full master m3u8 for debugging (usually small, ~1KB)
+                    logD("$label ORIGINAL m3u8 ($text.length chars):\n$text")
                 }
                 val rewritten = rewriteM3u8(text, realUrl)
                 if (isMaster) {
-                    logD("$label rewritten (first 400): ${trunc(rewritten, 400)}")
+                    logD("$label REWRITTEN m3u8 ($rewritten.length chars):\n$rewritten")
                 }
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
                     rewritten.toByteArray(Charsets.UTF_8))
             } else {
                 // CDN wraps MPEG-TS segments in PNG format (anti-scrape).
                 // Strip the PNG header so the player gets raw MPEG-TS data.
-                var outputBytes = bytes
-                outputBytes = stripPngHeader(outputBytes)
+                val outputBytes = stripPngHeader(bytes)
                 val ct = if (contentType.isBlank()) "application/octet-stream" else contentType
                 sendResponse(output, 200, "OK", ct, outputBytes)
             }
+        } catch (e: SocketException) {
+            // Player closed connection mid-transfer (normal when switching)
+            logD("$label: connection closed by player during fetch (normal)")
         } catch (e: Exception) {
             logE("$label fetch failed for ${trunc(realUrl, 100)}", e)
             try { sendResponse(output, 502, "Bad Gateway", "text/plain", "Upstream fetch failed".toByteArray()) } catch (_: Exception) {}
@@ -292,7 +299,11 @@ class HlsProxyServer(
     }
 
     private fun rewriteTagAttrs(line: String, baseDir: String): String {
-        val regex = Regex("""(URI|URL)="([^"]+)""" )
+        // FIX: The raw string must produce the regex pattern: (URI|URL)="([^"]+)"
+        //   """ opens the raw string, then the pattern content,
+        //   then the trailing " is part of the regex, then """ closes the raw string.
+        //   Total: Regex("""(URI|URL)="([^"]+)"""")
+        val regex = Regex("""(URI|URL)="([^"]+)""")
         return regex.replace(line) { match ->
             val attr = match.groupValues[1]
             val value = match.groupValues[2]

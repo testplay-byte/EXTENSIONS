@@ -41,7 +41,7 @@ import uy.kohesive.injekt.api.get
  *   - Auto-try-next: resolveVideo returns null on failure
  *   - Subtitle tracks from API passed via Video.subtitleTracks
  *
- * v16.10: HLS proxy v2 with ID-based URL mapping (no encoding issues)
+ * v16.12: Fixed m3u8 URI rewrite regex (double-quote bug), improved proxy logging
  */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 

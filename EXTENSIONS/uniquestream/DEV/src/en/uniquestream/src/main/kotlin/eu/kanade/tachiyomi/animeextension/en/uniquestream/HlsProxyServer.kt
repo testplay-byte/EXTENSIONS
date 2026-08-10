@@ -192,7 +192,7 @@ class HlsProxyServer(
                 .build()
             val response = client.newCall(request).execute()
             val code = response.code
-            val contentType = response.header("Content-Type", "")
+            val contentType: String = response.header("Content-Type") ?: ""
             val bytes = response.body?.bytes()
             response.close()
 

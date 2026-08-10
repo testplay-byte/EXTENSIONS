@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -308,7 +309,7 @@ class HlsProxyServer(
     private fun rewriteTagAttrs(line: String, baseDir: String): String {
         // Must use a regular (non-raw) Kotlin string here.
         // See v16.12 fix notes for why raw strings are broken for this pattern.
-        val regex = Regex("(URI|URL)=\\"([^\\"]+)\\"")
+        val regex = Regex("(URI|URL)=\"([^\"]+)\"")
         return regex.replace(line) { match ->
             val attr = match.groupValues[1]
             val value = match.groupValues[2]

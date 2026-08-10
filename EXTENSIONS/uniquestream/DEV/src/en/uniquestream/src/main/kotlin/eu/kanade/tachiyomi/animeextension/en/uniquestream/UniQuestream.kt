@@ -33,7 +33,7 @@ import uy.kohesive.injekt.api.get
 /**
  * UniQuestream — Aniyomi extension for anime.uniquestream.net
  *
- * Video pipeline (ext-lib 16, v16.15 — server-side AES-128 decryption):
+ * Video pipeline (ext-lib 16, v16.16 — hardened AES-128 decryption):
  *   - Override getHosterList() directly (NOT videoListParse)
  *   - Single API call per episode: /api/v1/episode/{id}/media/dash/{locale}
  *   - getHosterList FETCHES the master m3u8 itself, PARSES it to extract

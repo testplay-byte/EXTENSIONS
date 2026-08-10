@@ -1,8 +1,10 @@
 package eu.kanade.tachiyomi.animeextension.en.uniquestream
 
+import android.util.Base64
 import android.util.Log
 import java.io.InputStream
 import java.io.OutputStream
+import java.math.BigInteger
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
@@ -22,34 +24,30 @@ import okhttp3.Request
 /**
  * Local HTTP proxy for HLS playback through Cloudflare-protected CDN.
  *
- * Architecture (v16.15 — server-side AES-128 decryption):
+ * Architecture (v16.16 — server-side AES-128 decryption, hardened):
  *   - The caller (getHosterList) fetches and parses the master m3u8 itself,
  *     then registers each variant playlist URL here.
  *   - The player receives a DIRECT variant playlist URL (no master involved).
  *   - When the player requests a variant URL, the proxy:
  *     1. Fetches the real variant m3u8 from CDN
  *     2. Detects #EXT-X-KEY:METHOD=AES-128 encryption
- *     3. Fetches the 16-byte decryption key from CDN
+ *     3. Fetches the 16-byte decryption key from CDN (handles base64-encoded keys)
  *     4. Strips ALL encryption tags from the m3u8 (player sees plain stream)
  *     5. Rewrites segment URLs to proxy URLs
- *     6. Associates each segment with its encryption info (key + IV)
+ *     6. Associates each segment with its encryption info (key + per-segment IV)
  *     7. Serves the clean, unencrypted-looking variant m3u8
  *   - When the player requests a segment:
  *     1. Fetches encrypted segment from CDN
  *     2. Decrypts it with AES-128-CBC using the stored key + IV
  *     3. Serves the decrypted segment
  *
- * URL scheme:
- *   /p/{id}         -> any proxied URL (variant m3u8, segment, key, init mp4)
- *   /p/{id}.m3u8    -> same, but .m3u8 suffix helps players detect HLS format
- *
- * Why server-side decryption:
- *   - The CDN (get2.mediacache.cc) uses AES-128 encryption on TS segments.
- *   - Previously, we rewrote the #EXT-X-KEY URI to go through the proxy, relying
- *     on the player (ExoPlayer) to handle decryption. This failed consistently.
- *   - By decrypting server-side, the player receives plain MPEG-TS segments and
- *     doesn't need to know about encryption at all.
- *   - This eliminates all player-side AES-128 handling issues.
+ * v16.16 fixes over v16.15:
+ *   - Base64 key detection: CDN may return key as base64 string, not raw bytes
+ *   - Per-segment IV: when no explicit IV, uses (mediaSequence + segmentIndex)
+ *   - IV without 0x prefix: handles both IV=0x... and IV=hex... formats
+ *   - Key validation: rejects HTML error pages, validates key is actually crypto key
+ *   - Key fetch failure: strips broken #EXT-X-KEY instead of passing through
+ *   - fMP4 segment support: detects MP4 init segments and CMAF fragments
  */
 class HlsProxyServer(
     private val client: OkHttpClient,
@@ -64,18 +62,29 @@ class HlsProxyServer(
 
     // -- Encryption tracking -------------------------------------------
 
-    /** Holds the AES-128 decryption key and IV for a set of segments. */
+    /** Holds the AES-128 decryption info. IV is per-segment. */
     private data class EncryptionInfo(
         val method: String,
         val key: ByteArray,
-        val iv: ByteArray,
+        /** If explicitIv is set, ALL segments share this IV. */
+        val explicitIv: ByteArray?,
+        /** If explicitIv is null, IV is computed as (mediaSequence + segIndex). */
+        val mediaSequence: Long,
     ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (other !is EncryptionInfo) return false
-            return method == other.method && key.contentEquals(other.key) && iv.contentEquals(other.iv)
+        /** Compute the IV for a specific segment index. */
+        fun ivForSegment(segmentIndex: Int): ByteArray {
+            if (explicitIv != null) return explicitIv
+            // Per HLS spec: IV = big-endian 128-bit representation of (mediaSequence + segmentIndex)
+            val seqNum = mediaSequence + segmentIndex
+            val iv = ByteArray(16)
+            val bigInt = BigInteger.valueOf(seqNum)
+            val bytes = bigInt.toByteArray() // may be 1-13 bytes, big-endian
+            // Copy into the LAST bytes of the IV array (big-endian 128-bit)
+            val srcOffset = if (bytes.size > 16) bytes.size - 16 else 0
+            val destOffset = 16 - (bytes.size - srcOffset)
+            System.arraycopy(bytes, srcOffset, iv, destOffset, bytes.size - srcOffset)
+            return iv
         }
-        override fun hashCode(): Int = 31 * (31 * method.hashCode() + key.contentHashCode()) + iv.contentHashCode()
     }
 
     // -- Server state --------------------------------------------------
@@ -89,8 +98,11 @@ class HlsProxyServer(
     /** Maps proxy path ID -> real absolute upstream URL. */
     private val urlMap = ConcurrentHashMap<Int, String>()
 
-    /** Maps segment proxy ID -> encryption info for that segment. */
-    private val segmentEncryption = ConcurrentHashMap<Int, EncryptionInfo>()
+    /**
+     * Maps segment proxy ID -> encryption info for that segment.
+     * Key = proxy ID of the segment, Value = (encryption info, segment index within variant).
+     */
+    private val segmentEncryption = ConcurrentHashMap<Int, Pair<EncryptionInfo, Int>>()
 
     private val executor = Executors.newCachedThreadPool { r ->
         Thread(r, "UQ-Proxy").apply { isDaemon = true }
@@ -102,10 +114,7 @@ class HlsProxyServer(
 
     // -- Public API ---------------------------------------------------
 
-    /**
-     * Register a URL and get a proxy URL. If [isM3u8] is true, appends .m3u8 suffix.
-     * Returns a Pair of (proxyUrl, proxyId).
-     */
+    /** Register a URL and get a proxy URL + ID. */
     private fun registerUrlInternal(realUrl: String, isM3u8: Boolean): Pair<String, Int> {
         ensureStarted()
         val id = nextId.getAndIncrement()
@@ -218,7 +227,6 @@ class HlsProxyServer(
 
     private fun routeRequest(path: String, output: OutputStream) {
         try {
-            // Strip .m3u8 suffix for ID extraction
             val cleanPath = path.removeSuffix(".m3u8")
             val segments = cleanPath.trimStart('/').split("/")
             if (segments.size == 2 && segments[0] == "p") {
@@ -245,17 +253,19 @@ class HlsProxyServer(
     private fun serveProxied(id: Int, output: OutputStream) {
         val realUrl = urlMap[id]
         if (realUrl == null) {
-            logE("/p/$id: URL not found in map (expired?). Registered IDs: ${urlMap.keys.take(5)}...")
+            logE("/p/$id: URL not found in map. Registered count=${urlMap.size}, keys=${urlMap.keys.take(5)}")
             return sendResponse(output, 404, "Not Found", "text/plain", "URL expired".toByteArray())
         }
 
         // Check if this segment has encryption info
-        val encInfo = segmentEncryption[id]
-        if (encInfo != null) {
-            logD("PROXY /p/$id: has AES-128 encryption (method=${encInfo.method}, keyLen=${encInfo.key.size}, ivLen=${encInfo.iv.size})")
+        val encPair = segmentEncryption[id]
+        if (encPair != null) {
+            val (encInfo, segIdx) = encPair
+            val iv = encInfo.ivForSegment(segIdx)
+            logD("PROXY /p/$id: ENCRYPTED method=${encInfo.method} keyLen=${encInfo.key.size} segIdx=$segIdx explicitIv=${encInfo.explicitIv != null}")
         }
 
-        logD("PROXY /p/$id -> ${trunc(realUrl, 150)}${if (encInfo != null) " [ENCRYPTED - will decrypt]" else ""}")
+        logD("PROXY /p/$id -> ${trunc(realUrl, 150)}${if (encPair != null) " [WILL DECRYPT]" else ""}")
 
         try {
             val request = Request.Builder()
@@ -278,7 +288,6 @@ class HlsProxyServer(
                 return sendResponse(output, code, "Upstream Error", "text/plain", "HTTP $code".toByteArray())
             }
 
-            // Log first 16 bytes as hex for diagnostics
             val hexPrefix = bytes.take(16).joinToString(" ") { "%02x".format(it) }
             logD("PROXY: fetched ${bytes.size}B ct=$contentType hex=[$hexPrefix]")
 
@@ -290,39 +299,34 @@ class HlsProxyServer(
             if (isM3u8) {
                 val text = String(bytes, Charsets.UTF_8)
 
-                // Validate it's actually an m3u8 (starts with #EXTM3U)
                 if (!text.trimStart().startsWith("#EXTM3U")) {
-                    logE("PROXY: URL had .m3u8 but content is NOT m3u8! First 200 chars: ${trunc(text, 200)}")
+                    logE("PROXY: URL had .m3u8 but content is NOT m3u8! First 200: ${trunc(text, 200)}")
                     val ct = if (contentType.isBlank()) "application/octet-stream" else contentType
                     sendResponse(output, 200, "OK", ct, bytes)
                     return
                 }
 
-                // Log whether encryption was found in the m3u8
                 val hasExtXKey = text.lines().any { it.trim().startsWith("#EXT-X-KEY") }
                 if (hasExtXKey) {
                     logI("PROXY: m3u8 contains #EXT-X-KEY tag(s) -- will handle server-side decryption")
                 }
 
                 val rewritten = rewriteM3u8(text, realUrl, id)
-                logI("PROXY: Rewrote m3u8 ${bytes.size}B -> ${rewritten.length}B (encryption stripped: $hasExtXKey)")
+                logI("PROXY: Rewrote m3u8 ${bytes.size}B -> ${rewritten.length}B (encryption_found=$hasExtXKey)")
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
                     rewritten.toByteArray(Charsets.UTF_8))
             } else {
                 // Segment / init file
-                val finalBytes = if (encInfo != null) {
-                    decryptSegment(bytes, encInfo, id)
+                val finalBytes = if (encPair != null) {
+                    val (encInfo, segIdx) = encPair
+                    val iv = encInfo.ivForSegment(segIdx)
+                    decryptSegment(bytes, encInfo.key, iv, id)
                 } else {
                     bytes
                 }
 
                 val ct = if (contentType.isBlank()) {
-                    when {
-                        realUrl.contains(".ts") -> "video/MP2T"
-                        realUrl.contains(".mp4") -> "video/mp4"
-                        realUrl.contains(".key") -> "application/octet-stream"
-                        else -> "application/octet-stream"
-                    }
+                    guessContentType(realUrl, bytes)
                 } else {
                     contentType
                 }
@@ -336,46 +340,63 @@ class HlsProxyServer(
         }
     }
 
+    /** Guess content type from URL and magic bytes. */
+    private fun guessContentType(url: String, bytes: ByteArray): String {
+        // Check for MP4 box signature (fMP4 / CMAF)
+        if (bytes.size >= 8) {
+            val boxSize = ((bytes[0].toInt() and 0xFF) shl 24) or
+                    ((bytes[1].toInt() and 0xFF) shl 16) or
+                    ((bytes[2].toInt() and 0xFF) shl 8) or
+                    (bytes[3].toInt() and 0xFF)
+            val boxType = String(bytes, 4, 4)
+            if (boxType == "ftyp" || boxType == "moof" || boxType == "styp") {
+                return "video/mp4"
+            }
+        }
+        // Check for MPEG-TS sync byte
+        if (bytes.isNotEmpty() && bytes[0] == 0x47.toByte()) {
+            return "video/MP2T"
+        }
+        // Fall back to URL extension
+        return when {
+            url.contains(".ts") -> "video/MP2T"
+            url.contains(".m4s") -> "video/mp4"
+            url.contains(".mp4") -> "video/mp4"
+            url.contains(".key") -> "application/octet-stream"
+            else -> "application/octet-stream"
+        }
+    }
+
     // -- AES-128 Decryption --------------------------------------------
 
     /**
-     * Decrypt an AES-128-CBC encrypted TS segment.
-     * In HLS, each segment is independently encrypted with AES-128-CBC.
-     * The IV is either explicit (from #EXT-X-KEY IV= attribute) or implicit
-     * (media sequence number as IV).
-     *
-     * Tries PKCS5Padding first (standard HLS), then falls back to NoPadding
-     * if the CDN doesn't add PKCS7 padding.
+     * Decrypt an AES-128-CBC encrypted segment.
+     * Tries PKCS5Padding first (standard HLS), then falls back to NoPadding.
      */
-    private fun decryptSegment(encryptedBytes: ByteArray, encInfo: EncryptionInfo, segmentId: Int): ByteArray {
+    private fun decryptSegment(encryptedBytes: ByteArray, key: ByteArray, iv: ByteArray, segmentId: Int): ByteArray {
         try {
-            if (encInfo.method != "AES-128") {
-                logE("DECRYPT /p/$segmentId: unsupported method '${encInfo.method}', passing through as-is")
+            if (key.size != AES_BLOCK_SIZE) {
+                logE("DECRYPT /p/$segmentId: key size is ${key.size}, expected $AES_BLOCK_SIZE. CANNOT decrypt.")
                 return encryptedBytes
             }
-
-            if (encInfo.key.size != AES_BLOCK_SIZE) {
-                logE("DECRYPT /p/$segmentId: key size is ${encInfo.key.size}, expected $AES_BLOCK_SIZE. Passing through.")
+            if (iv.size != AES_BLOCK_SIZE) {
+                logE("DECRYPT /p/$segmentId: IV size is ${iv.size}, expected $AES_BLOCK_SIZE. CANNOT decrypt.")
                 return encryptedBytes
             }
-
-            if (encInfo.iv.size != AES_BLOCK_SIZE) {
-                logE("DECRYPT /p/$segmentId: IV size is ${encInfo.iv.size}, expected $AES_BLOCK_SIZE. Passing through.")
-                return encryptedBytes
-            }
-
             if (encryptedBytes.isEmpty()) {
-                logD("DECRYPT /p/$segmentId: empty segment, nothing to decrypt")
+                logD("DECRYPT /p/$segmentId: empty segment")
+                return encryptedBytes
+            }
+            if (encryptedBytes.size % AES_BLOCK_SIZE != 0) {
+                logE("DECRYPT /p/$segmentId: size ${encryptedBytes.size} not multiple of $AES_BLOCK_SIZE. CANNOT decrypt.")
                 return encryptedBytes
             }
 
-            // Verify encrypted data is a multiple of AES block size (16 bytes)
-            if (encryptedBytes.size % AES_BLOCK_SIZE != 0) {
-                logE("DECRYPT /p/$segmentId: encrypted size ${encryptedBytes.size} is NOT a multiple of $AES_BLOCK_SIZE. Decryption will likely fail.")
-            }
+            val keySpec = SecretKeySpec(key, "AES")
+            val ivSpec = IvParameterSpec(iv)
 
-            val keySpec = SecretKeySpec(encInfo.key, "AES")
-            val ivSpec = IvParameterSpec(encInfo.iv)
+            val hexIv = iv.joinToString("") { "%02x".format(it) }
+            logI("DECRYPT /p/$segmentId: ${encryptedBytes.size}B key=${key.size}B iv=0x$hexIv")
 
             // Try PKCS5Padding first (standard HLS uses PKCS7 padding)
             val decryptedBytes = try {
@@ -383,7 +404,6 @@ class HlsProxyServer(
                 cipher.init(Cipher.DECRYPT_MODE, keySpec, ivSpec)
                 cipher.doFinal(encryptedBytes)
             } catch (e: javax.crypto.BadPaddingException) {
-                // CDN might not use PKCS7 padding — fall back to NoPadding
                 logW("DECRYPT /p/$segmentId: PKCS5Padding failed (${e.message}), trying NoPadding")
                 try {
                     val cipher = Cipher.getInstance("AES/CBC/NoPadding")
@@ -395,31 +415,31 @@ class HlsProxyServer(
                 }
             }
 
-            // Log first 16 bytes of decrypted data to verify it looks like MPEG-TS (should start with 0x47)
+            // Verify decrypted content
             val hexAfter = decryptedBytes.take(16).joinToString(" ") { "%02x".format(it) }
-            val hasSyncByte = decryptedBytes.isNotEmpty() && decryptedBytes[0] == 0x47.toByte()
-            logI("DECRYPT /p/$segmentId: ${encryptedBytes.size}B -> ${decryptedBytes.size}B hex=[$hexAfter] mpegTsSync=$hasSyncByte")
+            val isTs = decryptedBytes.isNotEmpty() && decryptedBytes[0] == 0x47.toByte()
+            val isMp4 = decryptedBytes.size >= 8 && String(decryptedBytes, 4, 4) == "ftyp"
+            logI("DECRYPT /p/$segmentId: ${encryptedBytes.size}B -> ${decryptedBytes.size}B hex=[$hexAfter] ts=$isTs mp4=$isMp4")
 
-            if (!hasSyncByte && decryptedBytes.isNotEmpty()) {
-                logW("DECRYPT /p/$segmentId: WARNING - decrypted data does NOT start with MPEG-TS sync byte 0x47! First byte: 0x${"%02x".format(decryptedBytes[0])}")
-                // Try PKCS5 unpadding manually and check again
-                // Sometimes the padding makes the first byte off by the block alignment
+            if (!isTs && !isMp4 && decryptedBytes.isNotEmpty()) {
+                logW("DECRYPT /p/$segmentId: decrypted data is neither TS(0x47) nor MP4(ftyp). First byte=0x${"%02x".format(decryptedBytes[0])}. Wrong key or IV?")
             }
 
             return decryptedBytes
         } catch (e: Exception) {
             logE("DECRYPT /p/$segmentId: FAILED - ${e.javaClass.simpleName}: ${e.message}", e)
-            // Return encrypted bytes as fallback (will likely fail to play, but at least we log the error)
             return encryptedBytes
         }
     }
 
+    // -- Key fetching --------------------------------------------------
+
     /**
      * Fetch a decryption key from the CDN.
-     * The key is typically 16 raw bytes (AES-128).
+     * Handles both raw 16-byte keys and base64-encoded keys.
      */
     private fun fetchKey(keyUrl: String): ByteArray? {
-        logI("KEY-FETCH: fetching decryption key from ${trunc(keyUrl, 150)}")
+        logI("KEY-FETCH: START url=${trunc(keyUrl, 150)}")
         try {
             val request = Request.Builder()
                 .url(keyUrl)
@@ -431,37 +451,65 @@ class HlsProxyServer(
             val bytes = response.body?.bytes()
             response.close()
 
+            logI("KEY-FETCH: HTTP $code ct=$ct size=${bytes?.size ?: 0}")
+
             if (code != 200) {
                 logE("KEY-FETCH: HTTP $code for ${trunc(keyUrl, 100)}")
                 return null
             }
-
             if (bytes == null || bytes.isEmpty()) {
-                logE("KEY-FETCH: empty/null body for ${trunc(keyUrl, 100)}")
+                logE("KEY-FETCH: empty/null body")
                 return null
             }
 
-            val hexKey = bytes.joinToString(" ") { "%02x".format(it) }
-            logI("KEY-FETCH: got ${bytes.size}B key ct=$ct hex=[$hexKey]")
-
-            if (bytes.size != AES_BLOCK_SIZE) {
-                logW("KEY-FETCH: key is ${bytes.size}B, expected $AES_BLOCK_SIZE for AES-128. Will try to use as-is.")
+            // Reject obviously wrong responses (HTML error pages, etc.)
+            if (bytes.size > 64) {
+                val preview = String(bytes, 0, minOf(100, bytes.size), Charsets.UTF_8)
+                logE("KEY-FETCH: response is ${bytes.size}B (too large for a key). First 100: ${trunc(preview, 100)}")
+                return null
+            }
+            if (bytes.size >= 4 && String(bytes, 0, 4) == "<htm") {
+                logE("KEY-FETCH: response is HTML, not a key! First 100: ${trunc(String(bytes, Charsets.UTF_8), 100)}")
+                return null
             }
 
-            return bytes
+            // If exactly 16 bytes -> raw key (standard)
+            val finalKey: ByteArray = if (bytes.size == AES_BLOCK_SIZE) {
+                logI("KEY-FETCH: got raw 16-byte key (standard)")
+                bytes
+            } else {
+                // Try base64 decoding
+                val base64Str = String(bytes, Charsets.UTF_8).trim()
+                try {
+                    val decoded = Base64.decode(base64Str, Base64.DEFAULT)
+                    if (decoded.size == AES_BLOCK_SIZE) {
+                        logI("KEY-FETCH: decoded base64 ${bytes.size}B -> raw 16-byte key")
+                        decoded
+                    } else {
+                        logE("KEY-FETCH: base64 decoded to ${decoded.size}B, expected $AES_BLOCK_SIZE. Original was ${bytes.size}B.")
+                        return null
+                    }
+                } catch (e: Exception) {
+                    logE("KEY-FETCH: ${bytes.size}B response is not raw key and not valid base64. ${e.javaClass.simpleName}: ${e.message}")
+                    return null
+                }
+            }
+
+            val hexKey = finalKey.joinToString(" ") { "%02x".format(it) }
+            logI("KEY-FETCH: SUCCESS key=[$hexKey]")
+            return finalKey
         } catch (e: Exception) {
-            logE("KEY-FETCH: FAILED for ${trunc(keyUrl, 100)} - ${e.javaClass.simpleName}: ${e.message}", e)
+            logE("KEY-FETCH: EXCEPTION ${e.javaClass.simpleName}: ${e.message}", e)
             return null
         }
     }
 
     /**
-     * Parse an IV from a hex string like "0x12345678901234567890123456789012".
+     * Parse an IV from hex string. Handles both "0x1234..." and "1234..." formats.
      * Returns 16 bytes, or null if parsing fails.
      */
     private fun parseHexIv(hexIv: String): ByteArray? {
         try {
-            // Strip "0x" prefix if present
             val hex = if (hexIv.startsWith("0x") || hexIv.startsWith("0X")) {
                 hexIv.substring(2)
             } else {
@@ -488,29 +536,18 @@ class HlsProxyServer(
 
     /**
      * Rewrite a variant m3u8: rewrite segment URLs AND handle AES-128 encryption.
-     *
-     * For encryption:
-     *   - Detects #EXT-X-KEY:METHOD=AES-128,URI="...",IV=0x...
-     *   - Fetches the decryption key from CDN via extension's OkHttpClient
-     *   - Stores encryption info (key+IV) for each subsequent segment
-     *   - STRIPS the #EXT-X-KEY line from output (player sees plain stream)
-     *
-     * @param m3u8 the raw variant m3u8 text
-     * @param upstreamUrl the full URL of this variant m3u8 (for resolving relative URLs)
-     * @param variantId the proxy ID of this variant (for logging)
      */
     private fun rewriteM3u8(m3u8: String, upstreamUrl: String, variantId: Int): String {
         val baseDir = upstreamUrl.substringBeforeLast("/") + "/"
         val lines = m3u8.lines()
         val result = StringBuilder()
 
-        // Track current encryption state
         var currentEncryption: EncryptionInfo? = null
         var mediaSequence: Long = 0
         var segmentIndex = 0
         var encryptionHandled = false
 
-        // First pass: parse #EXT-X-MEDIA-SEQUENCE if present
+        // First pass: parse #EXT-X-MEDIA-SEQUENCE
         for (line in lines) {
             val trimmed = line.trim()
             if (trimmed.startsWith("#EXT-X-MEDIA-SEQUENCE:")) {
@@ -530,107 +567,106 @@ class HlsProxyServer(
 
             // Handle #EXT-X-KEY tag
             if (trimmed.startsWith("#EXT-X-KEY:")) {
-                val newEnc = processExtXKey(trimmed, baseDir)
+                val newEnc = processExtXKey(trimmed, baseDir, mediaSequence)
                 if (newEnc != null) {
                     currentEncryption = newEnc
                     encryptionHandled = true
-                    // DO NOT include the #EXT-X-KEY line in output
-                    // The player will receive an unencrypted stream
-                    logI("M3U8 /p/$variantId: STRIPPED #EXT-X-KEY (method=${newEnc.method}), will decrypt segments server-side")
+                    // STRIP the #EXT-X-KEY line — player sees no encryption
+                    logI("M3U8 /p/$variantId: STRIPPED #EXT-X-KEY (method=${newEnc.method}, explicitIv=${newEnc.explicitIv != null}, mediaSeq=${newEnc.mediaSequence})")
                 } else if (trimmed.contains("METHOD=NONE")) {
                     currentEncryption = null
                     logD("M3U8 /p/$variantId: encryption cleared (METHOD=NONE)")
-                    // Include METHOD=NONE line as-is (it's harmless)
                     result.appendLine(trimmed)
                 } else {
-                    logW("M3U8 /p/$variantId: unknown #EXT-X-KEY format, passing through: ${trunc(trimmed, 150)}")
-                    result.appendLine(trimmed)
+                    // processExtXKey returned null but it wasn't METHOD=NONE
+                    // This means key fetch failed or unsupported method
+                    // Do NOT pass through the broken tag — strip it to avoid player errors
+                    logE("M3U8 /p/$variantId: STRIPPING broken #EXT-X-KEY (key fetch likely failed). Video may not play.")
                 }
                 continue
             }
 
             if (trimmed.startsWith("#")) {
-                // Other tag lines: rewrite URI= and URL= attributes (for #EXT-X-MAP etc.)
                 result.appendLine(rewriteTagAttrs(trimmed, baseDir))
                 continue
             }
 
-            // Bare URL (TS segment) — register and associate with current encryption
+            // Bare URL (segment)
             val (proxyUrl, proxyId) = registerUrlInternal(trimmed, isM3u8 = false)
 
             if (currentEncryption != null) {
-                segmentEncryption[proxyId] = currentEncryption
-                logD("M3U8 /p/$variantId: segment[$segmentIndex] /p/$proxyId -> ENCRYPTED (will decrypt)")
+                // Store encryption info with the segment index for per-segment IV computation
+                segmentEncryption[proxyId] = Pair(currentEncryption, segmentIndex)
+                logD("M3U8 /p/$variantId: seg[$segmentIndex] /p/$proxyId -> ENCRYPTED")
             } else {
-                logD("M3U8 /p/$variantId: segment[$segmentIndex] /p/$proxyId -> plain")
+                logD("M3U8 /p/$variantId: seg[$segmentIndex] /p/$proxyId -> plain")
             }
 
             result.appendLine(proxyUrl)
             segmentIndex++
         }
 
-        logI("M3U8 /p/$variantId: processed $segmentIndex segments, encryption_handled=$encryptionHandled")
+        logI("M3U8 /p/$variantId: DONE segments=$segmentIndex encryption=$encryptionHandled")
         return result.toString()
     }
 
     /**
      * Process an #EXT-X-KEY tag.
-     * Extracts METHOD, URI, and IV. Fetches the key from CDN.
-     * Returns EncryptionInfo if successful, null if not encryption-related.
+     * Extracts METHOD, URI, IV. Fetches the key. Returns EncryptionInfo or null.
      */
-    private fun processExtXKey(tagLine: String, baseDir: String): EncryptionInfo? {
+    private fun processExtXKey(tagLine: String, baseDir: String, mediaSequence: Long): EncryptionInfo? {
         val methodMatch = Regex("METHOD=([^,]+)").find(tagLine)
         val method = methodMatch?.groupValues?.get(1)?.trim() ?: return null
 
         if (method == "NONE") return null
 
         if (method != "AES-128") {
-            logW("EXT-X-KEY: unsupported method '$method', only AES-128 is supported. Tag: ${trunc(tagLine, 200)}")
+            logW("EXT-X-KEY: unsupported method '$method'. Tag: ${trunc(tagLine, 200)}")
             return null
         }
 
         // Extract key URI
         val uriMatch = Regex("URI=\"([^\"]+)\"").find(tagLine)
         if (uriMatch == null) {
-            logE("EXT-X-KEY: no URI= attribute found! Tag: ${trunc(tagLine, 200)}")
+            logE("EXT-X-KEY: no URI= attribute! Tag: ${trunc(tagLine, 200)}")
             return null
         }
         val keyRelativeUrl = uriMatch.groupValues[1]
         val keyAbsoluteUrl = resolveUrl(baseDir, keyRelativeUrl)
+        logI("EXT-X-KEY: AES-128 detected keyUrl=${trunc(keyAbsoluteUrl, 150)}")
 
-        logI("EXT-X-KEY: AES-128 detected, key URL: ${trunc(keyAbsoluteUrl, 150)}")
-
-        // Fetch the key from CDN
+        // Fetch the key
         val keyBytes = fetchKey(keyAbsoluteUrl)
         if (keyBytes == null) {
-            logE("EXT-X-KEY: FAILED to fetch decryption key! Video will NOT play correctly.")
+            logE("EXT-X-KEY: FAILED to fetch decryption key!")
             return null
         }
 
-        // Parse IV
-        val ivMatch = Regex("IV=(0[xX][0-9a-fA-F]+)").find(tagLine)
-        val ivBytes: ByteArray = if (ivMatch != null) {
+        // Parse IV — handle both "0x..." and raw hex formats
+        val ivMatch = Regex("IV=(0[xX][0-9a-fA-F]+|[0-9a-fA-F]{32})").find(tagLine)
+        val explicitIv: ByteArray? = if (ivMatch != null) {
             val parsed = parseHexIv(ivMatch.groupValues[1])
             if (parsed != null) {
                 logI("EXT-X-KEY: explicit IV=0x${parsed.joinToString("") { "%02x".format(it) }}")
                 parsed
             } else {
-                logE("EXT-X-KEY: IV present but failed to parse! Will use zero IV.")
-                ByteArray(AES_BLOCK_SIZE) // fallback: zero IV
+                logE("EXT-X-KEY: IV present but failed to parse!")
+                null // Will use per-segment IV
             }
         } else {
-            // No explicit IV — per HLS spec, use media sequence number as IV
-            // We'll update this per-segment if needed, but for now use a placeholder.
-            // (Most CDNs provide an explicit IV)
-            logW("EXT-X-KEY: no explicit IV, per-HLS-spec should use media sequence number.")
-            ByteArray(AES_BLOCK_SIZE)
+            logI("EXT-X-KEY: no explicit IV — will use per-segment (mediaSeq + segIndex)")
+            null
         }
 
         val hexKey = keyBytes.joinToString(" ") { "%02x".format(it) }
-        val hexIv = ivBytes.joinToString(" ") { "%02x".format(it) }
-        logI("EXT-X-KEY: AES-128 ready. key=[$hexKey] iv=[$hexIv]")
+        logI("EXT-X-KEY: READY key=[$hexKey] explicitIv=${explicitIv != null} mediaSeq=$mediaSequence")
 
-        return EncryptionInfo(method = "AES-128", key = keyBytes, iv = ivBytes)
+        return EncryptionInfo(
+            method = "AES-128",
+            key = keyBytes,
+            explicitIv = explicitIv,
+            mediaSequence = mediaSequence,
+        )
     }
 
     private fun rewriteTagAttrs(line: String, baseDir: String): String {

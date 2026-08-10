@@ -34,6 +34,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         private const val TAG = "UniQuestream"
         private const val API = "/api/v1"
         private const val PREF_AUDIO_KEY = "preferred_audio"
+        private const val PAGE_LIMIT = 20 // API max is 20 (Pydantic validation)
     }
 
     override val name = "UniQuestream"
@@ -261,7 +262,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                     .addPathSegment(season.contentId)
                     .addPathSegment("episodes")
                     .addQueryParameter("page", page.toString())
-                    .addQueryParameter("limit", "100")
+                    .addQueryParameter("limit", PAGE_LIMIT.toString())
                     .addQueryParameter("order_by", "asc")
                     .build()
 
@@ -310,7 +311,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         preview_url = ep.image
                     })
                 }
-                if (items.size < 100) break
+                if (items.size < PAGE_LIMIT) break
                 page++
             }
             logD("getEpisodeList: season ${seasonIdx + 1}/${seasons.size} '${season.title}' done")

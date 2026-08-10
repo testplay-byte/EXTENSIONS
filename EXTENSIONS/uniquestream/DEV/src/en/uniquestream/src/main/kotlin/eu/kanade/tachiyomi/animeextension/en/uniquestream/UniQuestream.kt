@@ -41,7 +41,9 @@ import uy.kohesive.injekt.api.get
  *   - Auto-try-next: resolveVideo returns null on failure
  *   - Subtitle tracks from API passed via Video.subtitleTracks
  *
- * v16.12: Fixed m3u8 URI rewrite regex (double-quote bug), improved proxy logging
+ * v16.13: CRITICAL FIX — proxy URLs now end with .m3u8 so MPV/ffmpeg
+ *   can detect HLS format (fixes "unrecognized file format" error).
+ *   Added hex-prefix logging, Cache-Control header, improved log format.
  */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 

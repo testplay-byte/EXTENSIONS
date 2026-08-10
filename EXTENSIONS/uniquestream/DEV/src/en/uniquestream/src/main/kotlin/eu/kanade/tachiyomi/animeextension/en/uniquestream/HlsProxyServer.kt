@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -19,25 +18,31 @@ import okhttp3.Request
 /**
  * Local HTTP proxy for HLS playback through Cloudflare-protected CDN.
  *
- * Why needed: The CDN (get.mediacache.cc) sits behind Cloudflare.
- * ExoPlayer's internal HTTP client gets 403'd when fetching variant playlists
+ * Why needed: The CDN (get2.mediacache.cc) sits behind Cloudflare.
+ * MPV's internal HTTP client gets 403'd when fetching variant playlists
  * and segments directly. This proxy routes ALL HLS requests through the
  * extension's OkHttpClient (which has proper headers), bypassing the block.
  *
  * Architecture (ID-based URL mapping — zero URL encoding issues):
- *   1. getHosterList registers master m3u8 URL -> gets proxy URL /m/{id}
- *   2. ExoPlayer requests /m/{id} -> proxy fetches master, rewrites URLs to /p/{id}
- *   3. ExoPlayer requests /p/{id} -> proxy fetches real URL, rewrites if m3u8, else passes through
+ *   1. getHosterList registers master m3u8 URL -> gets proxy URL /m/{id}.m3u8
+ *   2. MPV requests /m/{id}.m3u8 -> proxy fetches master, rewrites URLs to /p/{id}.m3u8
+ *   3. MPV requests /p/{id}.m3u8 -> proxy fetches real URL, rewrites if m3u8, else passes through
  *
- * v16.13: Fixed URI rewrite regex (must use regular string, not raw string,
- *   because raw string trailing-quote ambiguity caused double-quote bug)
+ * v16.13 changes:
+ *   - CRITICAL FIX: Append .m3u8 to all m3u8 proxy URLs so MPV/ffmpeg
+ *     can detect the HLS format from the URL path (fixes "unrecognized file format")
+ *   - Routing strips .m3u8 suffix before parsing IDs
+ *   - Added Cache-Control: no-cache header (matches Anikoto pattern)
+ *   - Segment content-type: video/MP2T (uppercase, matches Anikoto)
+ *   - First-16-bytes hex logging for every proxied response (diagnostic)
+ *   - Clearer, structured log format
  */
 class HlsProxyServer(
     private val client: OkHttpClient,
     private val upstreamHeaders: Headers,
 ) {
     companion object {
-        private const val TAG = "UniQuestream-Proxy"
+        private const val TAG = "UQ-Proxy"
         private const val IDLE_TIMEOUT_MS = 600_000L
         private const val SOCKET_TIMEOUT_MS = 120_000
     }
@@ -61,19 +66,20 @@ class HlsProxyServer(
 
     // -- Public API ---------------------------------------------------
 
-    /** Register a master m3u8 URL. Returns the proxy URL for ExoPlayer. */
+    /** Register a master m3u8 URL. Returns the proxy URL for MPV. */
     fun registerMaster(realUrl: String): String {
         ensureStarted()
         val id = nextId.getAndIncrement()
         urlMap[id] = realUrl
-        logD("Registered master /m/$id -> ${trunc(realUrl, 120)}")
-        return "$baseUrl/m/$id"
+        val proxyUrl = "$baseUrl/m/$id.m3u8"
+        logI("MASTER registered: /m/$id.m3u8 -> ${trunc(realUrl, 120)}")
+        return proxyUrl
     }
 
     /** Clear all registered URLs (call when switching episodes). */
     fun clearUrls() {
         urlMap.clear()
-        logD("Cleared URL map")
+        logD("URL map cleared")
     }
 
     /** Stop the proxy server. */
@@ -83,7 +89,7 @@ class HlsProxyServer(
         acceptThread?.interrupt()
         executor.shutdownNow()
         urlMap.clear()
-        logD("Proxy stopped")
+        logI("Proxy stopped")
     }
 
     // -- Server lifecycle ----------------------------------------------
@@ -97,7 +103,7 @@ class HlsProxyServer(
         lastActivity.set(System.currentTimeMillis())
         acceptThread = Thread({ acceptLoop() }, "UQ-Proxy-Accept").apply { isDaemon = true; start() }
         idleThread = Thread({ idleMonitor() }, "UQ-Proxy-Idle").apply { isDaemon = true; start() }
-        logD("Proxy started at $baseUrl")
+        logI("Proxy started at $baseUrl")
     }
 
     private fun acceptLoop() {
@@ -155,7 +161,9 @@ class HlsProxyServer(
 
     private fun routeRequest(path: String, output: OutputStream) {
         try {
-            val segments = path.trimStart('/').split("/")
+            // Strip .m3u8 suffix for routing (MPV/ffmpeg needs it for format detection)
+            val cleanPath = path.removeSuffix(".m3u8")
+            val segments = cleanPath.trimStart('/').split("/")
             when {
                 segments.size == 2 && segments[0] == "m" -> {
                     val id = segments[1].toIntOrNull()
@@ -210,7 +218,9 @@ class HlsProxyServer(
                 return sendResponse(output, code, "Upstream Error", "text/plain", "HTTP $code".toByteArray())
             }
 
-            logD("$label: OK, ${bytes.size} bytes, content-type=$contentType")
+            // Log first 16 bytes as hex for diagnostics
+            val hexPrefix = bytes.take(16).joinToString(" ") { "%02x".format(it) }
+            logD("$label: OK ${bytes.size}B ct=$contentType hex=[$hexPrefix]")
 
             val isM3u8 = contentType.contains("mpegurl") ||
                 contentType.contains("vnd.apple") ||
@@ -220,23 +230,18 @@ class HlsProxyServer(
                 val text = String(bytes, Charsets.UTF_8)
                 val rewritten = rewriteM3u8(text, realUrl)
                 if (isMaster) {
-                    // Log each line with line number for clear debugging
-                    val origLines = text.lines()
-                    val newLines = rewritten.lines()
-                    logD("MASTER ORIGINAL (${origLines.size} lines, ${text.length} chars):")
-                    origLines.forEachIndexed { idx, ln ->
-                        if (ln.isNotBlank()) logD("  [${idx + 1}] $ln")
-                    }
-                    logD("MASTER REWRITTEN (${newLines.size} lines, ${rewritten.length} chars):")
-                    newLines.forEachIndexed { idx, ln ->
-                        if (ln.isNotBlank()) logD("  [${idx + 1}] $ln")
-                    }
+                    logMasterRewrite(text, rewritten)
                 }
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
                     rewritten.toByteArray(Charsets.UTF_8))
             } else {
                 val outputBytes = stripPngHeader(bytes)
-                val ct = if (contentType.isBlank()) "application/octet-stream" else contentType
+                val outputHex = outputBytes.take(16).joinToString(" ") { "%02x".format(it) }
+                if (outputBytes.size != bytes.size) {
+                    logI("PNG stripped: ${bytes.size}B -> ${outputBytes.size}B hex=[$outputHex]")
+                }
+                // Use video/MP2T for segments (matches Anikoto pattern, uppercase T)
+                val ct = if (contentType.isBlank()) "video/MP2T" else contentType
                 sendResponse(output, 200, "OK", ct, outputBytes)
             }
         } catch (e: SocketException) {
@@ -251,7 +256,7 @@ class HlsProxyServer(
 
     /**
      * Rewrite all URLs in an m3u8 playlist to point through this proxy.
-     * Uses ID-based mapping: each URL gets registered and replaced with /p/{id}.
+     * URLs that look like m3u8 get .m3u8 appended (critical for MPV/ffmpeg format detection).
      */
     private fun rewriteM3u8(m3u8: String, upstreamUrl: String): String {
         val baseDir = upstreamUrl.substringBeforeLast("/") + "/"
@@ -276,7 +281,7 @@ class HlsProxyServer(
                 if (i < lines.size) {
                     val nextLine = lines[i].trim()
                     if (nextLine.isNotEmpty() && !nextLine.startsWith("#")) {
-                        result.appendLine(registerAndRewrite(nextLine, baseDir))
+                        result.appendLine(registerAndRewrite(nextLine, baseDir, isM3u8 = true))
                     } else {
                         result.appendLine(nextLine)
                     }
@@ -293,7 +298,7 @@ class HlsProxyServer(
             }
 
             // Bare URL (segment or key reference)
-            result.appendLine(registerAndRewrite(trimmed, baseDir))
+            result.appendLine(registerAndRewrite(trimmed, baseDir, isM3u8 = false))
             i++
         }
 
@@ -301,31 +306,31 @@ class HlsProxyServer(
     }
 
     private fun rewriteTagAttrs(line: String, baseDir: String): String {
-        // CRITICAL: Must use a regular (non-raw) Kotlin string here.
-        // Raw strings CANNOT unambiguously contain a trailing " because
-        // Kotlin's raw string parser consumes it as part of the """ terminator.
-        // Example bug:  Regex("""(URI|URL)=\"([^\"]+)\""") produces
-        //   pattern (URI|URL)=\"([^\"]+)   -- MISSING the closing \" !
-        // Regular string with escaped quotes is unambiguous and correct:
-        val regex = Regex("(URI|URL)=\\"([^\\\"]+)\\"")
+        // Must use a regular (non-raw) Kotlin string here.
+        // See v16.12 fix notes for why raw strings are broken for this pattern.
+        val regex = Regex("(URI|URL)=\\"([^\\"]+)\\"")
         return regex.replace(line) { match ->
             val attr = match.groupValues[1]
             val value = match.groupValues[2]
             if (value.startsWith("data:")) {
                 "$attr=\"$value\""
             } else {
-                val proxyUrl = registerAndRewrite(value, baseDir)
+                // Detect if this URL points to an m3u8 playlist
+                val looksLikeM3u8 = value.contains(".m3u8")
+                val proxyUrl = registerAndRewrite(value, baseDir, isM3u8 = looksLikeM3u8)
                 "$attr=\"$proxyUrl\""
             }
         }
     }
 
     /** Resolve a relative URL against baseDir, register it, return proxy URL. */
-    private fun registerAndRewrite(relativeOrAbsolute: String, baseDir: String): String {
+    private fun registerAndRewrite(relativeOrAbsolute: String, baseDir: String, isM3u8: Boolean): String {
         val absolute = resolveUrl(baseDir, relativeOrAbsolute)
         val id = nextId.getAndIncrement()
         urlMap[id] = absolute
-        return "$baseUrl/p/$id"
+        // CRITICAL: Append .m3u8 for m3u8 URLs so MPV/ffmpeg can detect HLS format
+        val suffix = if (isM3u8) ".m3u8" else ""
+        return "$baseUrl/p/$id$suffix"
     }
 
     private fun resolveUrl(base: String, relative: String): String {
@@ -337,9 +342,12 @@ class HlsProxyServer(
 
     /**
      * Strip PNG wrapper from CDN-wrapped HLS segments.
-     * The CDN may wrap MPEG-TS data inside a minimal PNG container.
-     * If the data starts with a PNG signature, we find the IEND marker
-     * and scan for MPEG-TS sync bytes to extract the real data.
+     * Some CDNs wrap MPEG-TS data inside a minimal PNG container.
+     * If the data starts with a PNG signature (89 50 4E 47), we find the
+     * IEND marker and scan for MPEG-TS sync bytes to extract the real data.
+     *
+     * This is a no-op for data that doesn't start with a PNG signature
+     * (e.g., raw MPEG-TS starting with 0x47, or AES-encrypted data).
      */
     private fun stripPngHeader(data: ByteArray): ByteArray {
         if (data.size < 8) return data
@@ -361,13 +369,28 @@ class HlsProxyServer(
         val scanLimit = minOf(data.size - 188, cut + 400)
         for (i in cut until scanLimit) {
             if (data[i] == 0x47.toByte() && data[i + 188] == 0x47.toByte()) {
-                logD("PNG stripped: ${data.size} -> ${data.size - i} bytes (TS sync at offset $i)")
+                logI("PNG stripped: ${data.size}B -> ${data.size - i}B (TS sync at offset $i)")
                 return data.copyOfRange(i, data.size)
             }
         }
 
-        logD("PNG stripped (no TS sync): ${data.size} -> ${data.size - cut} bytes")
+        logI("PNG stripped (no TS sync found): ${data.size}B -> ${data.size - cut}B")
         return data.copyOfRange(cut, data.size)
+    }
+
+    // -- Master m3u8 logging ------------------------------------------
+
+    private fun logMasterRewrite(original: String, rewritten: String) {
+        val origLines = original.lines().filter { it.isNotBlank() }
+        val newLines = rewritten.lines().filter { it.isNotBlank() }
+        logI("MASTER ORIGINAL (${origLines.size} lines):")
+        origLines.forEachIndexed { idx, ln ->
+            logD("  [${idx + 1}] ${trunc(ln, 200)}")
+        }
+        logI("MASTER REWRITTEN (${newLines.size} lines):")
+        newLines.forEachIndexed { idx, ln ->
+            logD("  [${idx + 1}] ${trunc(ln, 200)}")
+        }
     }
 
     // -- HTTP response helpers ----------------------------------------
@@ -384,6 +407,7 @@ class HlsProxyServer(
             append("Content-Type: $contentType\r\n")
             append("Content-Length: ${body.size}\r\n")
             append("Connection: close\r\n")
+            append("Cache-Control: no-cache\r\n")
             append("Access-Control-Allow-Origin: *\r\n")
             append("\r\n")
         }
@@ -408,6 +432,7 @@ class HlsProxyServer(
     }
 
     private fun logD(msg: String) = Log.d(TAG, msg)
+    private fun logI(msg: String) = Log.i(TAG, msg)
     private fun logE(msg: String, t: Throwable? = null) {
         if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
     }

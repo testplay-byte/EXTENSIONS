@@ -16,7 +16,7 @@ android {
         // applicationId ≠ source package → must use FULL extClass path (no dot).
         // See HOW_TO_BUILD_EXTENSION/common-pitfalls.md §extClass + reference-prior-solutions.md §extclass-doubling.
         // Loader code: if sourceClass starts with ".", prepend packageName. Otherwise use as-is.
-        val extVersionCode = 11  // v16.11 (fix OkHttp 5.x nullable header() return type)
+        val extVersionCode = 12  // v16.12 (add PNG header stripping for CDN-wrapped segments)
         val extVersionId = 1    // ★ STABLE once published. Bumping orphans saved anime.
         val isNsfw = false
 

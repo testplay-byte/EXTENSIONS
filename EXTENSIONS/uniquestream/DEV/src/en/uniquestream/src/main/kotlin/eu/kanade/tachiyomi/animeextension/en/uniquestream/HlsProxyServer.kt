@@ -225,8 +225,12 @@ class HlsProxyServer(
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
                     rewritten.toByteArray(Charsets.UTF_8))
             } else {
+                // CDN wraps MPEG-TS segments in PNG format (anti-scrape).
+                // Strip the PNG header so the player gets raw MPEG-TS data.
+                var outputBytes = bytes
+                outputBytes = stripPngHeader(outputBytes)
                 val ct = if (contentType.isBlank()) "application/octet-stream" else contentType
-                sendResponse(output, 200, "OK", ct, bytes)
+                sendResponse(output, 200, "OK", ct, outputBytes)
             }
         } catch (e: Exception) {
             logE("$label fetch failed for ${trunc(realUrl, 100)}", e)
@@ -312,6 +316,54 @@ class HlsProxyServer(
     private fun resolveUrl(base: String, relative: String): String {
         if (relative.startsWith("http://") || relative.startsWith("https://")) return relative
         return base + relative
+    }
+
+    // -- PNG header stripping ------------------------------------------
+
+    /**
+     * Strip PNG wrapper from CDN-wrapped HLS segments.
+     *
+     * The CDN (get2.mediacache.cc) wraps MPEG-TS segment data inside a minimal
+     * PNG container as an anti-scrape measure. The segment files are named
+     * seg-0.png, seg-1.png, etc. but contain MPEG-TS data after the PNG IEND.
+     *
+     * Algorithm (from AniKoto LocalProxyServer, proven working on same CDN type):
+     *   1. Check for PNG signature at start (89 50 4E 47)
+     *   2. Find IEND marker (49 45 4E 44), skip 8 bytes (IEND + CRC)
+     *   3. Scan for MPEG-TS sync byte 0x47 at 188-byte packet boundaries
+     *   4. Return data starting from the first sync byte alignment
+     */
+    private fun stripPngHeader(data: ByteArray): ByteArray {
+        if (data.size < 8) return data
+        // Check PNG signature: 89 50 4E 47 0D 0A 1A 0A
+        if (!(data[0] == 0x89.toByte() && data[1] == 'P'.code.toByte() &&
+                data[2] == 'N'.code.toByte() && data[3] == 'G'.code.toByte())) {
+            return data
+        }
+
+        // Find IEND marker
+        var cut = -1
+        for (i in 0 until data.size - 4) {
+            if (data[i] == 'I'.code.toByte() && data[i + 1] == 'E'.code.toByte() &&
+                data[i + 2] == 'N'.code.toByte() && data[i + 3] == 'D'.code.toByte()) {
+                cut = i + 8 // Skip IEND (4 bytes) + CRC (4 bytes)
+                break
+            }
+        }
+        if (cut < 0 || cut >= data.size) return data
+
+        // Scan for MPEG-TS sync byte alignment (0x47 at 188-byte intervals)
+        val scanLimit = minOf(data.size - 188, cut + 400)
+        for (i in cut until scanLimit) {
+            if (data[i] == 0x47.toByte() && data[i + 188] == 0x47.toByte()) {
+                logD("PNG stripped: ${data.size} -> ${data.size - i} bytes (TS sync at offset $i)")
+                return data.copyOfRange(i, data.size)
+            }
+        }
+
+        // No sync byte found — return from IEND+8 position
+        logD("PNG stripped (no TS sync): ${data.size} -> ${data.size - cut} bytes")
+        return data.copyOfRange(cut, data.size)
     }
 
     // -- HTTP response helpers ----------------------------------------

@@ -19,7 +19,7 @@ import okhttp3.Request
 /**
  * Local HTTP proxy for HLS playback through Cloudflare-protected CDN.
  *
- * Why needed: The CDN (get2.mediacache.cc) sits behind Cloudflare.
+ * Why needed: The CDN (get.mediacache.cc) sits behind Cloudflare.
  * ExoPlayer's internal HTTP client gets 403'd when fetching variant playlists
  * and segments directly. This proxy routes ALL HLS requests through the
  * extension's OkHttpClient (which has proper headers), bypassing the block.
@@ -28,6 +28,9 @@ import okhttp3.Request
  *   1. getHosterList registers master m3u8 URL -> gets proxy URL /m/{id}
  *   2. ExoPlayer requests /m/{id} -> proxy fetches master, rewrites URLs to /p/{id}
  *   3. ExoPlayer requests /p/{id} -> proxy fetches real URL, rewrites if m3u8, else passes through
+ *
+ * v16.13: Fixed URI rewrite regex (must use regular string, not raw string,
+ *   because raw string trailing-quote ambiguity caused double-quote bug)
  */
 class HlsProxyServer(
     private val client: OkHttpClient,
@@ -142,7 +145,6 @@ class HlsProxyServer(
 
             routeRequest(path, output)
         } catch (e: SocketException) {
-            // Player closed the connection — normal when switching quality/server
             logD("Connection closed by player (normal)")
         } catch (e: Exception) {
             Log.e(TAG, "handleRequest error", e)
@@ -155,13 +157,11 @@ class HlsProxyServer(
         try {
             val segments = path.trimStart('/').split("/")
             when {
-                // /m/{id} -- master m3u8
                 segments.size == 2 && segments[0] == "m" -> {
                     val id = segments[1].toIntOrNull()
                     if (id == null) return sendResponse(output, 400, "Bad Request", "text/plain", "Invalid ID".toByteArray())
                     serveProxied(id, output, isMaster = true)
                 }
-                // /p/{id} -- any proxied URL
                 segments.size == 2 && segments[0] == "p" -> {
                     val id = segments[1].toIntOrNull()
                     if (id == null) return sendResponse(output, 400, "Bad Request", "text/plain", "Invalid ID".toByteArray())
@@ -170,7 +170,7 @@ class HlsProxyServer(
                 else -> sendResponse(output, 404, "Not Found", "text/plain", "Not Found".toByteArray())
             }
         } catch (e: SocketException) {
-            logD("Connection closed by player during ${path} (normal)")
+            logD("Connection closed by player during $path (normal)")
         } catch (e: Exception) {
             Log.e(TAG, "routeRequest error for $path", e)
             try { sendResponse(output, 500, "Internal Server Error", "text/plain", "Error".toByteArray()) } catch (_: Exception) {}
@@ -212,32 +212,34 @@ class HlsProxyServer(
 
             logD("$label: OK, ${bytes.size} bytes, content-type=$contentType")
 
-            // Determine if m3u8
             val isM3u8 = contentType.contains("mpegurl") ||
                 contentType.contains("vnd.apple") ||
                 realUrl.contains(".m3u8")
 
             if (isM3u8) {
                 val text = String(bytes, Charsets.UTF_8)
-                if (isMaster) {
-                    // Log full master m3u8 for debugging (usually small, ~1KB)
-                    logD("$label ORIGINAL m3u8 ($text.length chars):\n$text")
-                }
                 val rewritten = rewriteM3u8(text, realUrl)
                 if (isMaster) {
-                    logD("$label REWRITTEN m3u8 ($rewritten.length chars):\n$rewritten")
+                    // Log each line with line number for clear debugging
+                    val origLines = text.lines()
+                    val newLines = rewritten.lines()
+                    logD("MASTER ORIGINAL (${origLines.size} lines, ${text.length} chars):")
+                    origLines.forEachIndexed { idx, ln ->
+                        if (ln.isNotBlank()) logD("  [${idx + 1}] $ln")
+                    }
+                    logD("MASTER REWRITTEN (${newLines.size} lines, ${rewritten.length} chars):")
+                    newLines.forEachIndexed { idx, ln ->
+                        if (ln.isNotBlank()) logD("  [${idx + 1}] $ln")
+                    }
                 }
                 sendResponse(output, 200, "OK", "application/vnd.apple.mpegurl",
                     rewritten.toByteArray(Charsets.UTF_8))
             } else {
-                // CDN wraps MPEG-TS segments in PNG format (anti-scrape).
-                // Strip the PNG header so the player gets raw MPEG-TS data.
                 val outputBytes = stripPngHeader(bytes)
                 val ct = if (contentType.isBlank()) "application/octet-stream" else contentType
                 sendResponse(output, 200, "OK", ct, outputBytes)
             }
         } catch (e: SocketException) {
-            // Player closed connection mid-transfer (normal when switching)
             logD("$label: connection closed by player during fetch (normal)")
         } catch (e: Exception) {
             logE("$label fetch failed for ${trunc(realUrl, 100)}", e)
@@ -268,7 +270,7 @@ class HlsProxyServer(
             }
 
             if (trimmed.startsWith("#EXT-X-STREAM-INF")) {
-                // Variant playlist: URL is on the NEXT line
+                // Variant playlist: tag line preserved, URL on NEXT line is rewritten
                 result.appendLine(trimmed)
                 i++
                 if (i < lines.size) {
@@ -290,7 +292,7 @@ class HlsProxyServer(
                 continue
             }
 
-            // Bare URL (segment reference)
+            // Bare URL (segment or key reference)
             result.appendLine(registerAndRewrite(trimmed, baseDir))
             i++
         }
@@ -299,11 +301,13 @@ class HlsProxyServer(
     }
 
     private fun rewriteTagAttrs(line: String, baseDir: String): String {
-        // FIX: The raw string must produce the regex pattern: (URI|URL)="([^"]+)"
-        //   """ opens the raw string, then the pattern content,
-        //   then the trailing " is part of the regex, then """ closes the raw string.
-        //   Total: Regex("""(URI|URL)="([^"]+)"""")
-        val regex = Regex("""(URI|URL)="([^"]+)""")
+        // CRITICAL: Must use a regular (non-raw) Kotlin string here.
+        // Raw strings CANNOT unambiguously contain a trailing " because
+        // Kotlin's raw string parser consumes it as part of the """ terminator.
+        // Example bug:  Regex("""(URI|URL)=\"([^\"]+)\""") produces
+        //   pattern (URI|URL)=\"([^\"]+)   -- MISSING the closing \" !
+        // Regular string with escaped quotes is unambiguous and correct:
+        val regex = Regex("(URI|URL)=\\"([^\\\"]+)\\"")
         return regex.replace(line) { match ->
             val attr = match.groupValues[1]
             val value = match.groupValues[2]
@@ -333,37 +337,27 @@ class HlsProxyServer(
 
     /**
      * Strip PNG wrapper from CDN-wrapped HLS segments.
-     *
-     * The CDN (get2.mediacache.cc) wraps MPEG-TS segment data inside a minimal
-     * PNG container as an anti-scrape measure. The segment files are named
-     * seg-0.png, seg-1.png, etc. but contain MPEG-TS data after the PNG IEND.
-     *
-     * Algorithm (from AniKoto LocalProxyServer, proven working on same CDN type):
-     *   1. Check for PNG signature at start (89 50 4E 47)
-     *   2. Find IEND marker (49 45 4E 44), skip 8 bytes (IEND + CRC)
-     *   3. Scan for MPEG-TS sync byte 0x47 at 188-byte packet boundaries
-     *   4. Return data starting from the first sync byte alignment
+     * The CDN may wrap MPEG-TS data inside a minimal PNG container.
+     * If the data starts with a PNG signature, we find the IEND marker
+     * and scan for MPEG-TS sync bytes to extract the real data.
      */
     private fun stripPngHeader(data: ByteArray): ByteArray {
         if (data.size < 8) return data
-        // Check PNG signature: 89 50 4E 47 0D 0A 1A 0A
         if (!(data[0] == 0x89.toByte() && data[1] == 'P'.code.toByte() &&
                 data[2] == 'N'.code.toByte() && data[3] == 'G'.code.toByte())) {
             return data
         }
 
-        // Find IEND marker
         var cut = -1
         for (i in 0 until data.size - 4) {
             if (data[i] == 'I'.code.toByte() && data[i + 1] == 'E'.code.toByte() &&
                 data[i + 2] == 'N'.code.toByte() && data[i + 3] == 'D'.code.toByte()) {
-                cut = i + 8 // Skip IEND (4 bytes) + CRC (4 bytes)
+                cut = i + 8
                 break
             }
         }
         if (cut < 0 || cut >= data.size) return data
 
-        // Scan for MPEG-TS sync byte alignment (0x47 at 188-byte intervals)
         val scanLimit = minOf(data.size - 188, cut + 400)
         for (i in cut until scanLimit) {
             if (data[i] == 0x47.toByte() && data[i + 188] == 0x47.toByte()) {
@@ -372,7 +366,6 @@ class HlsProxyServer(
             }
         }
 
-        // No sync byte found — return from IEND+8 position
         logD("PNG stripped (no TS sync): ${data.size} -> ${data.size - cut} bytes")
         return data.copyOfRange(cut, data.size)
     }

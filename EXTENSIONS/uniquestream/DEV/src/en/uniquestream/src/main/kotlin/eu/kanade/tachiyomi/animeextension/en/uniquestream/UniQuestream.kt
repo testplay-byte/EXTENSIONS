@@ -33,18 +33,18 @@ import uy.kohesive.injekt.api.get
 /**
  * UniQuestream — Aniyomi extension for anime.uniquestream.net
  *
- * Video pipeline (ext-lib 16, v16.16 — hardened AES-128 decryption):
+ * Video pipeline (ext-lib 16, v16.17 — URL-rewriting proxy, ExoPlayer handles decryption):
  *   - Override getHosterList() directly (NOT videoListParse)
  *   - Single API call per episode: /api/v1/episode/{id}/media/dash/{locale}
  *   - getHosterList FETCHES the master m3u8 itself, PARSES it to extract
  *     variant playlists, and returns Video objects pointing to VARIANT proxy
  *     URLs directly (no master m3u8 in the player's view).
- *   - HLS proxy on 127.0.0.1 routes variant m3u8 + segment requests through
- *     the extension's OkHttpClient (CDN is behind Cloudflare).
+ *   - HLS proxy on 127.0.0.1 routes variant m3u8 + segment + key requests
+ *     through the extension's OkHttpClient (CDN is behind Cloudflare).
  *   - **AES-128 decryption**: The CDN encrypts TS segments with AES-128.
- *     The proxy detects #EXT-X-KEY, fetches the 16-byte key, strips
- *     encryption tags from m3u8, and decrypts segments server-side.
- *     The player receives plain, unencrypted MPEG-TS data.
+ *     The proxy keeps the #EXT-X-KEY tag and rewrites its key URI to a
+ *     proxy URL. ExoPlayer fetches the key through our proxy and handles
+ *     AES-128 decryption natively (well-tested, no custom crypto code).
  *   - Auto-try-next: resolveVideo returns null on failure.
  */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {

@@ -75,9 +75,9 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
     // via the Video.headers field — ExoPlayer propagates them to every sub-request.
     private val cdnHeaders: Headers by lazy {
         headersOf(
-            "Referer" to baseUrl,
-            "Origin" to baseUrl,
-            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer", baseUrl,
+            "Origin", baseUrl,
+            "User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         )
     }
 

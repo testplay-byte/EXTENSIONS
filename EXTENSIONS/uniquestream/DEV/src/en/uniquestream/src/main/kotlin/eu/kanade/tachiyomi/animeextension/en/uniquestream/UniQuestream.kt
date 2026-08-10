@@ -142,6 +142,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             if (line.startsWith("#EXT-X-STREAM-INF")) {
                 val resolution = parseResolution(line)
                 val bandwidth = parseBandwidth(line)
+                val resolutionHeight = resolution?.substringAfter("x")?.toIntOrNull()
                 val qualityLabel = resolution
                     ?: (if (bandwidth >= 5_000_000) "1080p"
                         else if (bandwidth >= 2_500_000) "720p"
@@ -163,7 +164,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
                 if (variantUrl != null) {
                     logV("parseMaster: $qualityLabel (${bandwidth}bps) -> ${trunc(variantUrl, 100)}")
-                    variants.add(VariantInfo(variantUrl, qualityLabel, resolution))
+                    variants.add(VariantInfo(variantUrl, qualityLabel, resolutionHeight))
                 }
             }
             i++
@@ -182,7 +183,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         return base + relative
     }
 
-    private data class VariantInfo(val url: String, val qualityLabel: String, val resolution: String?)
+    private data class VariantInfo(val url: String, val qualityLabel: String, val resolution: Int?)
 
     // -- Helpers --------------------------------------------------
 
@@ -493,7 +494,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         return listOf(makeVideo(proxyUrl, "$audioLabel - Auto", null, isPreferredAudio, subtitleTracks))
     }
 
-    private fun makeVideo(url: String, title: String, resolution: String?, preferred: Boolean, subtitleTracks: List<Track>) = Video(
+    private fun makeVideo(url: String, title: String, resolution: Int?, preferred: Boolean, subtitleTracks: List<Track>) = Video(
         videoUrl = url,
         videoTitle = title,
         resolution = resolution,

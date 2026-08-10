@@ -13,6 +13,7 @@ import eu.kanade.tachiyomi.animesource.model.AnimesPage
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
+import eu.kanade.tachiyomi.animesource.model.Track
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.network.GET
@@ -23,20 +24,37 @@ import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.Headers.Companion.headersOf
 import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
 
+/**
+ * UniQuestream — Aniyomi extension for anime.uniquestream.net
+ *
+ * Video pipeline (ext-lib 16):
+ *   - Override getHosterList() directly (NOT videoListParse)
+ *   - Single API call per episode: /api/v1/episode/{id}/media/dash/{locale}
+ *     Returns requested locale's HLS + all other audio versions in versions.hls[]
+ *   - Direct HLS URLs with CDN headers (no proxy) — matches AnimePahe pattern
+ *   - Auto-try-next: resolveVideo returns null on failure → Aniyomi tries next video
+ *   - Subtitle tracks from API passed via Video.subtitleTracks
+ *
+ * v16.9: Remove broken HLS proxy, use direct URLs with proper CDN headers
+ */
 class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
     companion object {
         private const val TAG = "UniQuestream"
+        private const val TAG_V = "UniQuestream-Video"  // video-pipeline-only tag
         private const val API = "/api/v1"
         private const val PREF_AUDIO_KEY = "preferred_audio"
         private const val PAGE_LIMIT = 20 // API max is 20 (Pydantic validation)
+
+        /** Truncate long strings for logcat's 4KB line limit. */
+        private fun trunc(s: String, maxLen: Int = 300): String =
+            if (s.length <= maxLen) s else s.substring(0, maxLen) + "…[${s.length} chars]"
     }
 
     override val name = "UniQuestream"
@@ -50,30 +68,17 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0)
     }
 
-    // ── HLS proxy for PNG-wrapped segments ─────────────────────
-    // The CDN (get.mediacache.cc) wraps HLS segments as PNG files.
-    // ExoPlayer can't demux PNG bytes → video fails to play.
-    // This local proxy strips the PNG header from each segment.
-    private val proxyClient: OkHttpClient by lazy {
-        client.newBuilder()
-            .build()
-    }
-    private val proxySegmentHeaders: Headers by lazy {
-        Headers.Builder()
-            .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-            .set("Referer", baseUrl)
-            .build()
-    }
-    private var hlsProxy: HlsProxyServer? = null
-
-    private fun ensureProxy(): String {
-        var proxy = hlsProxy
-        if (proxy == null || !proxy.running) {
-            proxy = HlsProxyServer(proxyClient, proxySegmentHeaders)
-            proxy.start()
-            hlsProxy = proxy
-        }
-        return proxy.baseUrl
+    // ── CDN Headers ─────────────────────────────────────────────────
+    // The CDN (get2.mediacache.cc) sits behind Cloudflare + openresty.
+    // It requires Referer/Origin headers matching the source site.
+    // These headers are applied to ALL video requests (master, variant, segments, keys)
+    // via the Video.headers field — ExoPlayer propagates them to every sub-request.
+    private val cdnHeaders: Headers by lazy {
+        headersOf(
+            "Referer" to baseUrl,
+            "Origin" to baseUrl,
+            "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -84,8 +89,13 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         body.string().let { json.decodeFromString<T>(it) }
 
     private fun logD(msg: String) = Log.d(TAG, msg)
+    private fun logV(msg: String) = Log.d(TAG_V, msg)
+    private fun logW(msg: String) = Log.w(TAG, msg)
     private fun logE(msg: String, t: Throwable? = null) {
         if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+    }
+    private fun logVE(msg: String, t: Throwable? = null) {
+        if (t != null) Log.e(TAG_V, msg, t) else Log.e(TAG_V, msg)
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -203,7 +213,7 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         append("Audio: ${locales.joinToString(", ") { localeToLabel(it) }}")
                     }
                     data.subtitleLocales?.let { locales ->
-                        append("\nSubtitles: ${locales.joinToString(", ") { localeToLabel(it) }}")
+                        append("Subtitles: ${locales.joinToString(", ") { localeToLabel(it) }}")
                     }
                 }
                 genre = data.genre?.joinToString(", ") { it.title }
@@ -234,9 +244,6 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
     // ════════════════════════════════════════════════════════════════
     // Episodes — override getEpisodeList (suspend) for proper async
     // ════════════════════════════════════════════════════════════════
-    // Matches AnimePahe/AniKoto pattern: override the suspend getEpisodeList
-    // so we have full control over HTTP calls in a coroutine context.
-    // episodeListRequest + episodeListParse are stubbed (never called).
 
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
         logD("getEpisodeList: START url=${anime.url}")
@@ -270,13 +277,10 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
 
         for ((seasonIdx, season) in seasons.withIndex()) {
             var page = 1
-            // Calculate episode number offset for multi-season shows
-            // so episodes are in chronological order across seasons
             val episodeOffset = if (isMultiSeason && seasonIdx > 0) {
                 seasons.take(seasonIdx).sumOf { it.episodeCount ?: 0 }
             } else 0
 
-            // Season display label for multi-season shows
             val seasonLabel = if (isMultiSeason) {
                 val display = season.displayNumber
                     ?.takeIf { it.isNotBlank() }
@@ -313,11 +317,9 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         ?: 0f
                     val globalEpNum = episodeOffset + epNum
 
-                    // Determine sub/dub availability from audio_locales
                     val hasSub = ep.audioLocales?.contains("ja-JP") == true
                     val hasDub = ep.audioLocales?.contains("en-US") == true
 
-                    // Clean episode name: just number and title (rule §8)
                     val epName = buildString {
                         if (seasonLabel != null) append("$seasonLabel ")
                         append("EP ${ep.episode ?: epNum.toInt()}")
@@ -328,14 +330,12 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         setUrlWithoutDomain("/episode/${ep.contentId}")
                         name = epName
                         episode_number = globalEpNum
-                        // Scanlator field shows sub/dub availability (rule §8)
                         scanlator = when {
                             hasSub && hasDub -> "Sub / Dub"
                             hasSub -> "Sub"
                             hasDub -> "Dub"
                             else -> ""
                         }
-                        // Episode thumbnail
                         preview_url = ep.image
                     })
                 }
@@ -371,43 +371,62 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
     // ════════════════════════════════════════════════════════════════
     // Video Pipeline (ext-lib 16)
     // ════════════════════════════════════════════════════════════════
-    // Override getHosterList() DIRECTLY.
-    // hosterListParse / videoListParse are never called.
     //
-    // API discovery: A single call to /episode/{id}/media/dash/{anyLocale}
-    // returns the requested locale's HLS data PLUS a versions.hls[] array
-    // containing ALL other available audio versions. This means ONE API
-    // call gives us everything we need — no need to call per-locale.
+    // Architecture: Direct HLS URLs (NO proxy).
+    // The API returns signed HLS m3u8 URLs from get2.mediacache.cc CDN.
+    // We pass these URLs directly to ExoPlayer/mpv with proper CDN headers.
+    // This matches the proven AnimePahe pattern.
     //
-    // The API even works with an invalid locale — it returns a default
-    // version's data with the full versions.hls[] array.
+    // Auto-try-next: resolveVideo() validates the URL and returns null
+    // on failure, causing Aniyomi to try the next video in the hoster.
+    //
+    // API discovery: /episode/{id}/media/dash/{anyLocale} returns the
+    // requested locale's HLS data PLUS versions.hls[] with ALL other
+    // audio versions. One API call = everything we need.
 
     override suspend fun getHosterList(episode: SEpisode): List<Hoster> {
         val episodeId = episode.url.substringAfter("/episode/").substringBefore("?")
-        logD("getHosterList: episode=$episodeId")
+        logV("═══════════════════════════════════════════════════")
+        logV("getHosterList: START episode=$episodeId")
 
         // Single API call — any locale works, versions.hls has everything
         val media = try {
             val url = "$baseUrl$API/episode/$episodeId/media/dash/ja-JP"
+            logV("getHosterList: fetching media from $url")
             val resp = client.newCall(GET(url, headers)).awaitSuccess()
-            resp.parseJson<MediaResponseDto>()
+            val body = resp.body.string()
+            logV("getHosterList: API response length=${body.length}")
+            logV("getHosterList: API response (truncated): ${trunc(body, 500)}")
+            json.decodeFromString<MediaResponseDto>(body)
         } catch (e: Exception) {
-            logE("getHosterList: media API failed", e)
+            logVE("getHosterList: media API FAILED", e)
             return emptyList()
+        }
+
+        // Log what we got from the API
+        logV("getHosterList: content_id=${media.contentId}")
+        logV("getHosterList: hls locale=${media.hls?.locale}, original=${media.hls?.original}, playlist=${media.hls?.playlist != null}")
+        logV("getHosterList: hls hard_subs count=${media.hls?.hardSubs?.size ?: 0}, subtitles count=${media.hls?.subtitles?.size ?: 0}")
+        logV("getHosterList: versions.hls count=${media.versions?.hls?.size ?: 0}")
+        media.versions?.hls?.forEachIndexed { i, v ->
+            logV("getHosterList:   version[$i] locale=${v.locale}, original=${v.original}, playlist=${v.playlist != null}")
         }
 
         // Collect ALL audio versions from hls + versions.hls
         val allVersions = mutableListOf<MediaResponseDto.HlsDto>()
-        media.hls?.let { allVersions.add(it) }
-        media.versions?.hls?.let { allVersions.addAll(it) }
-
-        if (allVersions.isEmpty()) {
-            logE("getHosterList: no versions found")
-            return emptyList()
+        media.hls?.let {
+            allVersions.add(it)
+            logV("getHosterList: added main hls (locale=${it.locale})")
+        }
+        media.versions?.hls?.let {
+            allVersions.addAll(it)
+            logV("getHosterList: added ${it.size} version(s) from versions.hls")
         }
 
-        // Start the HLS proxy (strips PNG-wrapped segment headers)
-        val proxyBaseUrl = ensureProxy()
+        if (allVersions.isEmpty()) {
+            logVE("getHosterList: NO versions found — returning empty hoster list")
+            return emptyList()
+        }
 
         // Find the original (Japanese) and English dub versions
         val original = allVersions.find { it.original == true }
@@ -415,29 +434,38 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             it.locale == "en-US" && it.original != true
         }
 
+        logV("getHosterList: original=${original?.locale}, englishDub=${englishDub?.locale}")
+
         val hosters = mutableListOf<Hoster>()
         val prefAudio = preferences.getString(PREF_AUDIO_KEY, "sub") ?: "sub"
+        logV("getHosterList: user preference = $prefAudio")
 
         // ── Build SUB hoster (original Japanese audio) ──────────────
         if (original != null) {
             val videos = mutableListOf<Video>()
             val isPreferred = (prefAudio == "sub")
 
-            // Original playlist (no burned-in subs — player handles soft subs)
+            // Build subtitle tracks from API response
+            val subtitleTracks = buildSubtitleTracks(original.subtitles)
+            logV("getHosterList: SUB subtitle tracks: ${subtitleTracks.size}")
+            subtitleTracks.forEach { logV("  sub track: ${it.lang} -> ${trunc(it.url, 100)}") }
+
+            // Main playlist (soft subs handled by player)
             original.playlist?.let { playlistUrl ->
-                val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
-                videos.add(makeVideo(proxyUrl, "Sub - Auto", isPreferred))
+                logV("getHosterList: SUB main playlist: ${trunc(playlistUrl, 200)}")
+                videos.add(makeVideo(playlistUrl, "Sub - Auto", isPreferred, subtitleTracks))
             }
 
             // Hard-sub variants (separate video streams with burned-in subtitles)
             for (hs in original.hardSubs.orEmpty()) {
                 hs.playlist?.let { playlistUrl ->
-                    val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
+                    logV("getHosterList: SUB hard-sub ${hs.locale}: ${trunc(playlistUrl, 200)}")
                     videos.add(
                         makeVideo(
-                            proxyUrl,
+                            playlistUrl,
                             "Sub (${localeToLabel(hs.locale)})",
                             false,
+                            emptyList(),
                         ),
                     )
                 }
@@ -450,7 +478,12 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         videoList = videos,
                     ),
                 )
+                logV("getHosterList: added SUB hoster with ${videos.size} video(s)")
+            } else {
+                logW("getHosterList: SUB hoster has NO videos (playlist was null?)")
             }
+        } else {
+            logW("getHosterList: no original (Japanese) version found")
         }
 
         // ── Build DUB hoster (English dub) ──────────────────────────
@@ -458,21 +491,23 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             val videos = mutableListOf<Video>()
             val isPreferred = (prefAudio == "dub")
 
-            // English dub main playlist
+            val subtitleTracks = buildSubtitleTracks(englishDub.subtitles)
+            logV("getHosterList: DUB subtitle tracks: ${subtitleTracks.size}")
+
             englishDub.playlist?.let { playlistUrl ->
-                val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
-                videos.add(makeVideo(proxyUrl, "Dub - Auto", isPreferred))
+                logV("getHosterList: DUB main playlist: ${trunc(playlistUrl, 200)}")
+                videos.add(makeVideo(playlistUrl, "Dub - Auto", isPreferred, subtitleTracks))
             }
 
-            // Hard-sub variants for English dub (e.g., Spanish hard-subs on English audio)
             for (hs in englishDub.hardSubs.orEmpty()) {
                 hs.playlist?.let { playlistUrl ->
-                    val proxyUrl = hlsProxy!!.proxyUrl(playlistUrl)
+                    logV("getHosterList: DUB hard-sub ${hs.locale}: ${trunc(playlistUrl, 200)}")
                     videos.add(
                         makeVideo(
-                            proxyUrl,
+                            playlistUrl,
                             "Dub (${localeToLabel(hs.locale)})",
                             false,
+                            emptyList(),
                         ),
                     )
                 }
@@ -485,7 +520,10 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
                         videoList = videos,
                     ),
                 )
+                logV("getHosterList: added DUB hoster with ${videos.size} video(s)")
             }
+        } else {
+            logV("getHosterList: no English dub version found")
         }
 
         // ── Sort hosters based on user preference ───────────────────
@@ -494,18 +532,37 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             else -> hosters // SUB first (default)
         }
 
-        logD("getHosterList: returning ${sorted.size} hosters, ${sorted.sumOf { it.videoList?.size ?: 0 }} videos")
+        logV("getHosterList: RETURNING ${sorted.size} hoster(s), ${sorted.sumOf { it.videoList?.size ?: 0 }} total video(s)")
+        sorted.forEach { h ->
+            logV("  hoster: ${h.hosterName} → ${h.videoList?.size ?: 0} videos")
+            h.videoList?.forEach { v ->
+                logV("    video: ${v.videoTitle}, url=${trunc(v.videoUrl, 150)}, headers=${v.headers != null}, subs=${v.subtitleTracks.size}")
+            }
+        }
+        logV("═══════════════════════════════════════════════════")
         return sorted
     }
 
-    private fun makeVideo(url: String, title: String, preferred: Boolean) = Video(
+    /**
+     * Create a Video object with direct CDN URL and proper headers.
+     *
+     * Pattern matches AnimePahe: direct m3u8 URL + headers + initialized=false.
+     * ExoPlayer uses Video.headers for ALL HLS sub-requests (master, variant,
+     * segments, encryption keys).
+     */
+    private fun makeVideo(
+        url: String,
+        title: String,
+        preferred: Boolean,
+        subtitleTracks: List<Track>,
+    ) = Video(
         videoUrl = url,
         videoTitle = title,
-        resolution = null,
+        resolution = null,  // ExoPlayer determines resolution from HLS manifest
         bitrate = null,
-        headers = null, // No headers needed — proxy handles upstream headers
+        headers = cdnHeaders,  // CDN requires Referer + Origin
         preferred = preferred,
-        subtitleTracks = emptyList(),
+        subtitleTracks = subtitleTracks,
         audioTracks = emptyList(),
         timestamps = emptyList(),
         mpvArgs = emptyList(),
@@ -515,9 +572,59 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
         initialized = false,
     )
 
+    /**
+     * Auto-try-next-hoster: resolveVideo validates the video URL.
+     * Returns null on failure → Aniyomi automatically tries the next video.
+     *
+     * This is the ext-lib 16 mechanism for fallback:
+     * - If resolveVideo returns the video, Aniyomi plays it
+     * - If resolveVideo returns null, Aniyomi tries the next video in the hoster's list
+     */
     override suspend fun resolveVideo(video: Video): Video? {
-        if (video.initialized) return video
-        return video.copy(initialized = true)
+        logV("resolveVideo: START title='${video.videoTitle}', initialized=${video.initialized}")
+        logV("resolveVideo: url=${trunc(video.videoUrl, 200)}")
+        logV("resolveVideo: headers=${video.headers != null}, subs=${video.subtitleTracks.size}")
+
+        if (video.initialized) {
+            logV("resolveVideo: already initialized, returning as-is")
+            return video
+        }
+
+        // Validate the video URL is non-empty and looks like an HLS URL
+        if (video.videoUrl.isBlank()) {
+            logVE("resolveVideo: URL is blank — returning NULL (auto-try-next)")
+            return null
+        }
+
+        if (!video.videoUrl.contains(".m3u8")) {
+            logVE("resolveVideo: URL does not contain .m3u8: ${trunc(video.videoUrl, 100)} — returning NULL")
+            return null
+        }
+
+        // Optionally: do a HEAD request to verify the URL is reachable
+        // (commented out by default to avoid adding latency to every video switch)
+        /*
+        try {
+            val request = Request.Builder()
+                .url(video.videoUrl)
+                .headers(video.headers ?: headers)
+                .head()
+                .build()
+            val response = client.newCall(request).awaitSuccess()
+            logV("resolveVideo: HEAD check status=${response.code} for ${trunc(video.videoUrl, 100)}")
+            if (!response.isSuccessful) {
+                logVE("resolveVideo: HEAD returned ${response.code} — returning NULL (auto-try-next)")
+                return null
+            }
+        } catch (e: Exception) {
+            logVE("resolveVideo: HEAD check FAILED — returning NULL (auto-try-next)", e)
+            return null
+        }
+        */
+
+        val resolved = video.copy(initialized = true)
+        logV("resolveVideo: SUCCESS — returning initialized video")
+        return resolved
     }
 
     // hosterListParse / videoListParse — never called (getHosterList is overridden)
@@ -558,6 +665,20 @@ class UniQuestream : AnimeHttpSource(), ConfigurableAnimeSource {
             entryValues = arrayOf("sub", "dub", "all")
             setDefaultValue("sub")
         }.let { screen.addPreference(it) }
+    }
+
+    // ── Subtitle Track Builder ───────────────────────────────────────
+    /**
+     * Build subtitle Track objects from the API's subtitle DTOs.
+     * Each track has: URL (direct CDN .vtt/.ass link) and display label.
+     */
+    private fun buildSubtitleTracks(subtitles: List<MediaResponseDto.SubtitleDto>?): List<Track> {
+        if (subtitles.isNullOrEmpty()) return emptyList()
+        return subtitles.mapNotNull { sub ->
+            val url = sub.url ?: return@mapNotNull null
+            val label = localeToLabel(sub.locale)
+            Track(url, label)
+        }
     }
 
     // ── Utility ──────────────────────────────────────────────────────
@@ -613,10 +734,6 @@ data class SeriesDto(
     @SerialName("episodes_count") val episodesCount: Int? = null,
     @SerialName("duration_ms") val durationMs: Long? = null,
 ) {
-    /**
-     * Convert to SAnime for list display (Popular / Latest / Search).
-     * Does NOT set initialized = true — the app calls animeDetailsParse on click.
-     */
     fun toSAnime() = SAnime.create().apply {
         url = "/series/$contentId"
         title = this@SeriesDto.title.ifBlank { "Unknown" }

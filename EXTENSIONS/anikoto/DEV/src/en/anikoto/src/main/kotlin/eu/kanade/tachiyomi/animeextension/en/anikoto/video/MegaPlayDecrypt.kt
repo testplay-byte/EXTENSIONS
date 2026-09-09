@@ -48,7 +48,7 @@ object MegaPlayDecrypt {
         // Zero-padded 32-byte key (AES-256) — mirrors the player's Uint8Array(32) trick.
         val keyBytes = ByteArray(32)
         val rawKey = ENC_KEY.toByteArray(Charsets.UTF_8)
-        System.arraycopy(rawKey, 0, keyBytes, 0, rawKey.length)
+        System.arraycopy(rawKey, 0, keyBytes, 0, rawKey.size)
 
         val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
         cipher.init(

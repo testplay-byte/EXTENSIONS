@@ -9,7 +9,7 @@
 
 | Extension | Folder | Language | Status | Version | Target site | extClass |
 |---|---|---|---|---|---|---|
-| **AniKoto 180** | [`EXTENSIONS/anikoto/`](../EXTENSIONS/anikoto/) | `en` | ✅ All features working | v16.9 (Build 7, versionCode 9, versionId 11) | anikototv.to | `...en.anikoto.Anikoto` |
+| **AniKoto 180** | [`EXTENSIONS/anikoto/`](../EXTENSIONS/anikoto/) | `en` | ✅ All features working | v16.10 (Build 10, versionCode 10, versionId 11) | anikototv.to (+ 5 mirrors selectable in settings) | `...en.anikoto.Anikoto` |
 | **AnimePahe 180** | [`EXTENSIONS/animepahe/`](../EXTENSIONS/animepahe/) | `en` | ✅ All features working | v16.10 (Build 10, versionCode 10, versionId 1) | animepahe.pw | `...en.animepahe.AnimePahe` |
 | **MKissa 180** | [`EXTENSIONS/mkissa/`](../EXTENSIONS/mkissa/) | `en` | 🚧 In progress (3/6 video servers working) | v16.17 (Build 17, versionCode 17, versionId 1) | mkissa.to | `...en.mkissa.MKissa` |
 | **AniDB 180** | [`EXTENSIONS/anidb/`](../EXTENSIONS/anidb/) | `en` | 🚧 In progress (initial build, debug only) | v16.1 (Build 1, versionCode 1, versionId 1) | anidb.app | `...en.anidb.AniDB` |

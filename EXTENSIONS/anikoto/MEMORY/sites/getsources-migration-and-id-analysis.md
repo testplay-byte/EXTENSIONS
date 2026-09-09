@@ -243,3 +243,77 @@ agent-browser open "https://megaplay.buzz/stream/s-2/<epId>/sub"
 sleep 8
 agent-browser network requests  # look for getSources / m3u8 / segment calls
 ```
+
+---
+
+## 4. ★ Session 52 (2026-09-09): megaplay ENCRYPTS getSources — "enc" AES blob + getSourcesNew restoration
+
+> Status: ✅ VERIFIED live (curl + openssl + megaplay's own newclient.min.js analysis)
+> Trigger: user reported ALL episodes failing to play. Logs showed
+> `resolveVidTube: no valid m3u8 in getSources response (sources.file='null')` on every server.
+
+### What changed on the site
+
+megaplay.buzz (HD-1, Vidstream-2) changed its `getSources` response shape AGAIN:
+
+| Endpoint | Session 27 behavior | Session 52 behavior (2026-09-09) |
+|---|---|---|
+| `megaplay.buzz /stream/getSources?id=X&type=Y` | ✅ plaintext `sources.file` | ❌ **ENCRYPTED**: `{"tracks":[...], "enc":"<base64url blob>"}` — no `sources` key |
+| `megaplay.buzz /stream/getSourcesNew?id=X&type=Y` | ❌ 404 | ✅ **plaintext `sources.file` again** (rotating mirror host) |
+| `vidtube.site /stream/getSources(New)` | ✅ plaintext | ✅ plaintext (unchanged) — m3u8 now on `s1.akirax.buzz` |
+| `vidwish.live` | ✅ plaintext | ✅ (unchanged, not re-verified this session) |
+
+The `enc` blob decrypts to `{"file":"https://<mirror>/<hash>/<hash>/master.m3u8"}`.
+
+### The decryption (extracted from megaplay's own `lib/newclient.min.js`)
+
+- **AES-256-CBC**, PKCS#7 padding
+- **Key**: `"i?LMTAx0Q6,:}50U"` (16 chars) **zero-padded to 32 bytes** — the JS does
+  `new Uint8Array(32)` + set(key) before `crypto.subtle.importKey(..., "AES-CBC")`,
+  which selects AES-256 based on key length
+- **IV**: `"W0;27ToaUpl_P%'c"` (16 bytes ASCII, used as-is)
+- **Encoding**: base64url (unpadded)
+- Same constants are used by TWO modules in newclient.min.js (SegmentDecrypt for
+  `/segment/{token}` URLs and the trust module) — cross-verified by decrypting a live
+  blob with `openssl enc -d -aes-256-cbc`.
+
+### The new video architecture (session 52)
+
+1. `getSourcesNew` → plaintext m3u8 on a **rotating mirror host**:
+   `megap.shiora.site` (with `&type=` param) / `megap.mikora.top` (without) — deterministic
+   per request shape, NOT per-request random.
+2. Mirrors are **WAF-free** (plain curl 200 — no WebView needed for the m3u8 anymore).
+3. megaplay masters list a **single 1080p variant** (`index-f1-v1-a1.m3u8`; f2/f3 = 404).
+   VidPlay-1 (s1.akirax.buzz) still serves 1080p/720p/360p.
+4. Variant segments are ALL on `p16/p19-ad-site-sign-sg.tiktokcdn.com` (the content is now
+   disguised as "ad" URLs) with a **252-byte PNG prefix** (was 70). Our `stripPngHeader`
+   (IEND scan + TS-sync scan, 400-byte window) handles it unchanged: IEND ends at 70,
+   TS sync starts at 252 ✓.
+5. Segments are signed URLs (`x-signature`, `x-expires`) — Referer-agnostic (200 with no
+   Referer at all).
+6. `cdn.imgnex.top` (subtitles + the enc-referenced m3u8) IS WAF-blocked for datacenter
+   IPs (curl + headless Chrome → 403) — avoid it; the mirror hosts from getSourcesNew
+   are the ones to use.
+7. The player also ships `SegmentStrip` (strips 252 bytes from ad-host segments) and
+   `TikTokCdnProxy`/`Failover` (rewrites tiktokcdn → `yoot.akirax.buzz` on failures) —
+   our extension doesn't need these (proxy + PNG strip already handle it).
+
+### Extension fix (v16.10, build 10)
+
+- `AnikotoExtractors.fetchSourcesData()`: try `getSourcesNew?id=X&type=Y` first (plaintext),
+  then `getSources?id=X&type=Y` — parsing BOTH shapes (`sources.file` plaintext OR `enc`
+  blob → AES-256-CBC decrypt via new `video/MegaPlayDecrypt.kt`).
+- `VidTubeSourcesResponse` gained `enc: String? = null`; `VidTubeSources.file` is now nullable.
+- `vidtubeApiHeaders(host)` — per-host Referer (was hardcoded vidtube.site).
+
+### Test commands (reproduce session 52 findings)
+
+```bash
+UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+# 1. getSources → enc blob:
+curl -s -A "$UA" -H "X-Requested-With: XMLHttpRequest" "https://megaplay.buzz/stream/getSources?id=2234&type=sub"
+# 2. getSourcesNew → plaintext (rotating mirror):
+curl -s -A "$UA" -H "X-Requested-With: XMLHttpRequest" "https://megaplay.buzz/stream/getSourcesNew?id=2234&type=sub"
+# 3. mirror master (WAF-free):
+curl -s -A "$UA" -H "Referer: https://megaplay.buzz/" "https://megap.shiora.site/<hash>/<hash>/master.m3u8"
+```

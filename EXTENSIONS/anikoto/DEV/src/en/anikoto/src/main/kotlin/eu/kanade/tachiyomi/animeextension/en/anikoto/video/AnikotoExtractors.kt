@@ -2,6 +2,7 @@ package eu.kanade.tachiyomi.animeextension.en.anikoto.video
 
 import eu.kanade.tachiyomi.animeextension.en.anikoto.AnikotoLog
 import eu.kanade.tachiyomi.animeextension.en.anikoto.VidTubeSourcesResponse
+import eu.kanade.tachiyomi.animeextension.en.anikoto.VidTubeTrack
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -11,6 +12,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,8 +25,12 @@ import java.util.regex.Pattern
  *
  * Two flows:
  * - [resolveVidTube] (Flow A): VidPlay-1, HD-1, Vidstream-2, VidCloud-1
- *   iframe → data-id → getSources?id=X&type=Y → master m3u8 → variants → segments
+ *   iframe → data-id → getSources/getSourcesNew → master m3u8 → variants → segments
  *   ★ session 27: unified to getSources (works on all 3 hosts with the type param).
+ *   ★ session 52: megaplay.buzz re-encrypted getSources ("enc" AES blob, sources.file
+ *   gone). Now: try getSourcesNew (plaintext again on ALL hosts) first, then getSources
+ *   with AES-256-CBC decryption of the "enc" blob via [MegaPlayDecrypt]. See
+ *   MEMORY/sites/getsources-migration-and-id-analysis.md §3.
  *   ★ session 27: per-stream Referer stored in AudioStream for the proxy to use.
  * - [resolveKiwi] (Flow B): Kiwi-Stream
  *   iframe URL#<base64-fragment> → decode → direct m3u8 → variants → segments
@@ -34,6 +41,81 @@ class AnikotoExtractors(
     private val webViewFetcher: WebViewFetcher? = null,
 ) {
     // ── Flow A: VidTube (VidPlay-1, HD-1, Vidstream-2) ──────────────────────
+
+    /** ★ session 52: parsed getSources/getSourcesNew result — master m3u8 + subtitle tracks. */
+    private data class SourcesData(val masterM3u8: String, val tracks: List<VidTubeTrack>)
+
+    /**
+     * ★ session 52: Resolve the master m3u8 + subtitle tracks for a data-id.
+     *
+     * megaplay.buzz (HD-1, Vidstream-2) now ENCRYPTS its getSources response ("enc"
+     * AES-256-CBC blob — plaintext sources.file is gone; that is what broke playback on
+     * 2026-09-09). Strategy, both endpoints verified live:
+     * 1. `getSourcesNew?id=X&type=Y` — plaintext sources.file AGAIN on ALL hosts
+     *    (megaplay, vidtube, vidwish — the player's own newclient.min.js rewrites
+     *    getSources → getSourcesNew exactly like this).
+     * 2. `getSources?id=X&type=Y` — fallback: still plaintext on vidtube/vidwish, but on
+     *    megaplay returns the "enc" blob → decrypted via [MegaPlayDecrypt]
+     *    (AES-256-CBC, key "i?LMTAx0Q6,:}50U" zero-padded to 32 bytes, IV "W0;27ToaUpl_P%'c"
+     *    — constants extracted from megaplay's lib/newclient.min.js).
+     *
+     * The returned m3u8 host rotates per response (megap.shiora.site, megap.mikora.top,
+     * s1.akirax.buzz) — all verified WAF-free as of session 52.
+     */
+    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String): SourcesData? {
+        // Attempt 1: getSourcesNew (plaintext on all hosts — verified live session 52)
+        try {
+            val url = "https://$host/stream/getSourcesNew?id=$dataId&type=$audioType"
+            AnikotoLog.d("resolveVidTube: [2/5] GET getSourcesNew: ${AnikotoLog.trunc(url, 80)}")
+            val body = fetchString(url, vidtubeApiHeaders(host))
+            parseSourcesBody(body)?.let { return it }
+            AnikotoLog.w("resolveVidTube: getSourcesNew response had no usable file (host=$host)")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AnikotoLog.w("resolveVidTube: getSourcesNew FAILED on $host — ${e.message?.take(80)}")
+        }
+
+        // Attempt 2: getSources (legacy — plaintext on vidtube/vidwish, enc-encrypted on megaplay)
+        try {
+            val url = "https://$host/stream/getSources?id=$dataId&type=$audioType"
+            AnikotoLog.d("resolveVidTube: [2/5] GET getSources: ${AnikotoLog.trunc(url, 80)}")
+            val body = fetchString(url, vidtubeApiHeaders(host))
+            parseSourcesBody(body)?.let { return it }
+            AnikotoLog.w("resolveVidTube: getSources response had no usable file (host=$host)")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AnikotoLog.w("resolveVidTube: getSources FAILED on $host — ${e.message?.take(80)}")
+        }
+        return null
+    }
+
+    /**
+     * Parse a getSources/getSourcesNew JSON body → [SourcesData], handling BOTH shapes
+     * (verified live session 52):
+     * - plaintext: `{"sources":{"file":"https://...m3u8"},"tracks":[...]}`
+     * - encrypted: `{"tracks":[...],"enc":"<base64url AES blob>"}` → decrypt → `{"file":"..."}`
+     */
+    private fun parseSourcesBody(body: String): SourcesData? {
+        val sources = json.decodeFromString(VidTubeSourcesResponse.serializer(), body)
+        // Shape 1: plaintext sources.file
+        sources.sources?.file?.takeIf { it.startsWith("http") }?.let { file ->
+            return SourcesData(file, sources.tracks)
+        }
+        // Shape 2: encrypted enc blob
+        val enc = sources.enc?.takeIf { it.isNotBlank() } ?: return null
+        AnikotoLog.i("resolveVidTube: response is ENCRYPTED (enc blob, ${enc.length} chars) — decrypting")
+        val decrypted = MegaPlayDecrypt.decrypt(enc) ?: return null
+        AnikotoLog.d("resolveVidTube: decrypted enc → ${AnikotoLog.trunc(decrypted, 80)}")
+        val file = try {
+            (json.parseToJsonElement(decrypted) as? JsonObject)?.get("file")?.jsonPrimitive?.content
+        } catch (e: Exception) {
+            AnikotoLog.e("resolveVidTube: decrypted enc JSON parse FAILED — ${e.message?.take(80)}")
+            null
+        }
+        return file?.takeIf { it.startsWith("http") }?.let { SourcesData(it, sources.tracks) }
+    }
 
     suspend fun resolveVidTube(iframeUrl: String, audioType: String, hosterName: String): AudioStream? {
         val host = extractHost(iframeUrl) ?: run {
@@ -52,25 +134,28 @@ class AnikotoExtractors(
             }
             AnikotoLog.i("resolveVidTube: data-id=$dataId")
 
-            // Step 2: Fetch sources m3u8 + tracks via the unified getSources endpoint.
-            // ★ session 27: getSources?id=X&type=Y works on ALL hosts (verified live):
-            //   - vidtube.site (VidPlay-1): type param selects sub/hsub/dub (data-id is shared)
-            //   - megaplay.buzz (HD-1, Vidstream-2): type param respected (data-id is also audio-specific)
-            //   - vidwish.live (VidCloud-1): type param respected (data-id is audio-specific)
-            // The old getSourcesNew 404s on megaplay.buzz/vidwish.live — getSources replaces it everywhere.
-            // See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §1.
-            val sourcesUrl = "https://$host/stream/getSources?id=$dataId&type=$audioType"
-            AnikotoLog.d("resolveVidTube: [2/5] GET getSources: ${AnikotoLog.trunc(sourcesUrl, 80)}")
-            val sourcesBody = fetchString(sourcesUrl, vidtubeApiHeaders())
-            val sources = json.decodeFromString(VidTubeSourcesResponse.serializer(), sourcesBody)
-            val masterM3u8 = sources.sources?.file?.takeIf { it.startsWith("http") }
-            if (masterM3u8 == null) {
-                AnikotoLog.e("resolveVidTube: no valid m3u8 in getSources response (sources.file='${sources.sources?.file ?: "null"}')")
+            // Step 2: Fetch sources m3u8 + tracks.
+            // ★ session 52: megaplay.buzz (HD-1, Vidstream-2) ENCRYPTED its getSources response
+            // ("enc" AES-256-CBC blob — sources.file is gone). That broke playback: every
+            // megaplay server logged `sources.file='null'` and returned null.
+            // New strategy (both endpoints verified live 2026-09-09):
+            //   1. getSourcesNew?id=X&type=Y — plaintext sources.file AGAIN on ALL hosts
+            //      (megaplay + vidtube + vidwish; the player's own newclient.min.js rewrites
+            //      getSources → getSourcesNew the same way).
+            //   2. getSources?id=X&type=Y — fallback: plaintext on vidtube/vidwish, but on
+            //      megaplay returns the "enc" blob → decrypt with AES-256-CBC
+            //      (key "i?LMTAx0Q6,:}50U" zero-padded to 32, IV "W0;27ToaUpl_P%'c" —
+            //      extracted from megaplay's lib/newclient.min.js). See MegaPlayDecrypt.
+            // The master m3u8 host now ROTATES per response (megap.shiora.site,
+            // megap.mikora.top, s1.akirax.buzz) — all currently WAF-free.
+            val sourcesData = fetchSourcesData(host, dataId, audioType)
+            if (sourcesData == null) {
+                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host)")
                 return null
             }
+            val masterM3u8 = sourcesData.masterM3u8
             AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)}")
-            AnikotoLog.i("resolveVidTube: subs=${sources.tracks.size} track(s)")
-
+            AnikotoLog.i("resolveVidTube: subs=${sourcesData.tracks.size} track(s)")
             // Step 3: parse master m3u8 → variants
             AnikotoLog.d("resolveVidTube: [3/5] fetching master m3u8")
             val masterText = fetchString(masterM3u8, segHeaders(host))
@@ -119,7 +204,7 @@ class AnikotoExtractors(
             }
 
             // Step 5: build subtitles
-            val subtitles = sources.tracks.mapNotNull { track ->
+            val subtitles = sourcesData.tracks.mapNotNull { track ->
                 if (track.file.startsWith("http") && track.label.isNotEmpty()) {
                     SubtitleData(track.file, track.label, inferLang(track.label))
                 } else null
@@ -339,9 +424,9 @@ class AnikotoExtractors(
         .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         .build()
 
-    private fun vidtubeApiHeaders() = Headers.Builder()
+    private fun vidtubeApiHeaders(host: String) = Headers.Builder()
         .set("User-Agent", BROWSER_UA)
-        .set("Referer", "https://vidtube.site/")
+        .set("Referer", "https://$host/")
         .set("X-Requested-With", "XMLHttpRequest")
         .set("Accept", "*/*")
         .build()

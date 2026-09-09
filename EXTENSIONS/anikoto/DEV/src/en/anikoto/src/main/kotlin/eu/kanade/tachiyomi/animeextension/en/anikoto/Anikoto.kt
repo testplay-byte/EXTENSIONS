@@ -46,7 +46,20 @@ import java.util.concurrent.TimeUnit
 class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val name = "AniKoto 180"
-    override val baseUrl = "https://anikototv.to"
+
+    // ★ session 52: baseUrl is now USER-SELECTABLE (Settings → Playback → Preferred domain).
+    // All 6 official/verified mirror domains are offered; the default is the primary one.
+    // Safe design points:
+    // - The source ID = MD5("anikoto 180/en/11") derives from name/lang/versionId — NOT the
+    //   domain — so switching mirrors never orphans saved anime.
+    // - Episode URLs are stored as relative paths ("/watch/slug/ep-N#fragment") by design,
+    //   so previously saved episodes resolve against the newly selected domain automatically.
+    // - `by lazy` defers the SharedPreferences read until the first request, when Injekt is ready.
+    override val baseUrl: String by lazy {
+        val saved = preferences.getString(AnikotoSettings.PREF_DOMAIN_KEY, null)
+        saved?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL
+    }
+
     override val lang = "en"
     override val supportsLatest = true
     override val versionId = 11
@@ -727,10 +740,11 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             AnikotoLog.d("resolveStreamForTask: ${task.label} -> iframe=${AnikotoLog.trunc(iframeUrl, 80)}")
 
             // Step 2: dispatch by player host
-            // ★ vidwish.live (VidCloud-1) now routes to resolveVidTube too (session 26).
-            //   The site migrated from getSourcesNew → getSources; resolveVidTube selects the
-            //   endpoint by host. vidwish.live's data-id is audio-specific, so getSources?id=X
-            //   returns the correct audio. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §1.
+            // ★ vidwish.live (VidCloud-1) also routes to resolveVidTube (session 26).
+            //   resolveVidTube tries getSourcesNew first, then getSources (which may return
+            //   the megaplay "enc" AES blob — decrypted by MegaPlayDecrypt, session 52).
+            //   vidwish.live's data-id is audio-specific, so both endpoints return the
+            //   correct audio. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §4.
             val host = iframeUrl.substringAfter("://").substringBefore("/")
             val hosterName = task.label.substringAfter(" - ")
             val result = when {
@@ -864,6 +878,9 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     companion object {
+        /** ★ session 52: default site domain (used when no preference is saved yet). */
+        internal const val DEFAULT_BASE_URL = "https://anikototv.to"
+
         // Preference keys and defaults have been moved to AnikotoSettings.kt.
         // Access them through `settings.*` (e.g., settings.preferredQuality).
     }

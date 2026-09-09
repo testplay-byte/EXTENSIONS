@@ -1,7 +1,7 @@
 # AniKoto 180 — Extension APK Information Sheet
 
-> Generated: 2026-06-26 (session 49) · By: Confused_Creature (180)
-> Current version: v16.9 (versionCode=9)
+> Generated: 2026-06-26 (session 49) · Updated: 2026-09-09 (session 52) · By: Confused_Creature (180)
+> Current version: v16.10 (versionCode=10)
 
 ---
 
@@ -9,7 +9,7 @@
 
 | Property | Value |
 |----------|-------|
-| **File name** | `aniyomi-en.anikoto180-v16.9-release.apk` |
+| **File name** | `aniyomi-en.anikoto180-v16.10-release.apk` |
 | **File size** | ~255 KB |
 | **MD5** | `524c91799b7a33f56a2753678c546eee` |
 | **App label** | AniKoto 180 |

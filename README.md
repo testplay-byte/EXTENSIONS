@@ -10,7 +10,7 @@
 
 | Extension | Site | Status | Version |
 |---|---|---|---|
-| **AniKoto 180** | anikototv.to | ✅ Stable | v16.9 (build 9) |
+| **AniKoto 180** | anikototv.to | ✅ Stable | v16.10 (build 10) |
 | **AnimePahe 180** | animepahe.pw | ✅ Stable | v16.10 (build 10) |
 | **MKissa 180** | mkissa.to | 🚧 In progress | v16.17 (build 17) |
 | **AniDB 180** | anidb.app | 🚧 In progress | v16.1 (build 1) |

@@ -1,6 +1,6 @@
 # Module: Video Pipeline
 
-> Last updated: 2027-06-27 (session 51) · Status: VERIFIED
+> Last updated: 2026-09-09 (session 52) · Status: VERIFIED
 > Covers: server discovery, stream extraction, local proxy, WebView fallback, and video output.
 
 ---
@@ -208,3 +208,28 @@ Three changes to reduce first-video-play time:
 - **What**: Server list (/ajax/server/list) and mapper API now run concurrently via `coroutineScope { async { ... }; async { ... } }`
 - **Impact**: Saves ~200–500ms (the time of whichever finishes first)
 - **Risk**: None — they're independent API calls; failures in one don't affect the other
+
+---
+
+## ★ Session 52 (v16.10) — Megaplay encrypted sources + rotating mirrors
+
+**Symptom:** every megaplay server (HD-1, Vidstream-2) failed with
+`sources.file='null'` — megaplay.buzz encrypted its `getSources` response:
+`{"tracks":[...], "enc":"<AES-256-CBC base64url blob>"}` (no `sources` key).
+
+**Fix (in `AnikotoExtractors.fetchSourcesData` + `video/MegaPlayDecrypt.kt`):**
+1. `getSourcesNew?id=X&type=Y` first — plaintext again on ALL hosts (verified live).
+2. Fallback `getSources?id=X&type=Y` — if the body carries `enc`, decrypt with
+   AES-256-CBC (key `"i?LMTAx0Q6,:}50U"` zero-padded to 32 bytes, IV `"W0;27ToaUpl_P%'c"`
+   — constants from megaplay's own `lib/newclient.min.js`).
+
+**New CDN reality (verified live 2026-09-09):**
+- m3u8 hosts rotate: `megap.shiora.site` / `megap.mikora.top` (megaplay),
+  `s1.akirax.buzz` (vidtube) — all WAF-free (plain OkHttp OK, no WebView).
+- megaplay masters = single 1080p variant (`index-f1-v1-a1.m3u8`).
+- Segments all on `p16/p19-ad-site-sign-sg.tiktokcdn.com` (content disguised as ad URLs),
+  252-byte PNG prefix (old: 70) — `stripPngHeader` handles it unchanged (IEND@62,
+  TS@252, scan window 400). Signed URLs → Referer-agnostic.
+- `cdn.imgnex.top` (enc-referenced m3u8 + subtitles) IS WAF-blocked for datacenter IPs.
+
+Full details: `MEMORY/sites/getsources-migration-and-id-analysis.md` §4 + session log 52.

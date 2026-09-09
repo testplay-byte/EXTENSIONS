@@ -186,7 +186,7 @@ This project-level `MEMORY/` only holds shared mature folders (`guides/`, `decis
 
 **AniKoto 180 (current active extension):**
 - Quick-ref: [`../EXTENSIONS/anikoto/EXTENSION.md`](../EXTENSIONS/anikoto/EXTENSION.md)
-- Latest session: `../EXTENSIONS/anikoto/MEMORY/session-logs/2027-06-27_session-51_filter-fixes-and-performance-optimizations.md`
+- Latest session: `../EXTENSIONS/anikoto/MEMORY/session-logs/2026-09-09_session-52_fix-megaplay-encrypted-sources-and-preferred-domain.md`
 - Architecture: `../EXTENSIONS/anikoto/MEMORY/modules/00-architecture.md`
 - Build checklist (shared): [`guides/04-build-checklist.md`](guides/04-build-checklist.md) ★ mandatory
 

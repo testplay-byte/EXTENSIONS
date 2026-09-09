@@ -22,7 +22,7 @@ import androidx.preference.SwitchPreferenceCompat
  * source class — just update this file.
  *
  * ## Preference categories
- * 1. **Playback** — quality, audio, buffer, server
+ * 1. **Playback** — domain, quality, audio, buffer, server
  * 2. **Servers** — Kiwi-Stream toggle
  * 3. **Episode metadata** — thumbnails, titles, descriptions
  * 4. **Smart Search** — AI-powered search toggle + activation phrase (session 51)
@@ -53,6 +53,10 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
     /** Preferred server name (e.g. "auto", "VidPlay-1") */
     val preferredServer: String
         get() = prefs.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
+
+    /** ★ session 52: Preferred site domain (e.g. "https://anikototv.to"). */
+    val preferredDomain: String
+        get() = prefs.getString(PREF_DOMAIN_KEY, PREF_DOMAIN_DEFAULT) ?: PREF_DOMAIN_DEFAULT
 
     /** Whether Kiwi-Stream server discovery is enabled (default: true) */
     val enableKiwi: Boolean
@@ -102,6 +106,31 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
         PreferenceCategory(screen.context).apply {
             title = "Playback"
             screen.addPreference(this)
+
+            ListPreference(context).apply {
+                key = PREF_DOMAIN_KEY
+                title = "Preferred domain"
+                // ★ session 52: all 6 official/verified AniKoto domains (from anikoto.site,
+                // the site's own domain hub — plus anikototv.com which also serves the site).
+                entries = arrayOf(
+                    "anikototv.to (Primary)",
+                    "anikoto.cz (Regional mirror)",
+                    "anikoto.me (Short TLD mirror)",
+                    "anikoto.net (Network mirror)",
+                    "anikototv.se (Nordic mirror)",
+                    "anikototv.com (Legacy mirror)",
+                )
+                entryValues = arrayOf(
+                    "https://anikototv.to",
+                    "https://anikoto.cz",
+                    "https://anikoto.me",
+                    "https://anikoto.net",
+                    "https://anikototv.se",
+                    "https://anikototv.com",
+                )
+                setDefaultValue(PREF_DOMAIN_DEFAULT)
+                summary = "Currently: %s"
+            }.also(::addPreference)
 
             ListPreference(context).apply {
                 key = PREF_QUALITY_KEY
@@ -264,6 +293,8 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
         // All keys are private — access through typed getters only.
 
         // Playback
+        internal const val PREF_DOMAIN_KEY = "pref_domain"
+        internal const val PREF_DOMAIN_DEFAULT = "https://anikototv.to"
         internal const val PREF_QUALITY_KEY = "pref_quality"
         internal const val PREF_QUALITY_DEFAULT = "720"
         internal const val PREF_AUDIO_KEY = "pref_audio"

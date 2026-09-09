@@ -1,6 +1,6 @@
 # Module: Settings
 
-> Last updated: 2027-06-27 (session 51) · Status: VERIFIED
+> Last updated: 2026-09-09 (session 52) · Status: VERIFIED
 > Covers: preference keys, defaults, typed getters, and the settings UI.
 
 ---
@@ -188,3 +188,17 @@ pref.summary = spannable
 - **Architecture**: `EXTENSIONS/anikoto/MEMORY/modules/00-architecture.md`
 - **Episode metadata**: `EXTENSIONS/anikoto/MEMORY/modules/04-episode-metadata.md`
 - **Smart Search**: `EXTENSIONS/anikoto/MEMORY/modules/06-smart-search.md`
+
+---
+
+## ★ Session 52 (v16.10) — Preferred domain
+
+New **ListPreference** at the top of the **Playback** category:
+
+- Key: `pref_domain` (`AnikotoSettings.PREF_DOMAIN_KEY`) · default `https://anikototv.to`
+- 6 entries (all verified live from anikoto.site, the site's own domain hub, + probing):
+  `anikototv.to` (primary), `anikoto.cz`, `anikoto.me`, `anikoto.net`, `anikototv.se`,
+  `anikototv.com`
+- `Anikoto.kt` reads it: `override val baseUrl by lazy { prefs[PREF_DOMAIN_KEY] ?: DEFAULT_BASE_URL }`
+- **Source ID safety:** id = MD5("anikoto 180/en/11") — domain-independent → no orphaned
+  anime. Episode URLs are relative paths → saved episodes follow the new domain.

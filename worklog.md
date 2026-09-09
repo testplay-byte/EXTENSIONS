@@ -3857,3 +3857,25 @@ Stage Summary:
 - ★ m3u8 capture uses a plain OkHttp client (no CloudflareInterceptor) with WebView cookies — should successfully fetch the master playlist before the player consumes the token.
 - ★ Videos are labeled with server × quality × audio (e.g. "HD-1 - 1080p - SUB").
 - HONEST NOTE: video playback still needs on-device verification. The shouldInterceptRequest approach intercepts the m3u8 request, fetches it via plainClient (with cf_clearance cookie from WebView), reads the master playlist body, parses quality variants, and returns variant URLs as Videos. Variant URLs are on a CDN and should not need tokens. If playback still fails, the most likely issue is the variant URLs needing specific headers (Referer/Origin) — which are set in the Video's headers field.
+
+---
+Task ID: anikoto-session-52
+Agent: Main Agent (Z.ai Code)
+Task: Fix AniKoto 180 playback failure (all episodes fail) + add 6-domain Preferred Domain setting. Build + verify via GitHub Actions, release v16.10.
+
+Work Log:
+- User reported: "When I try to open up any episode to play it, it fails." Logcat showed `sources.file='null'` on every megaplay server (HD-1, Vidstream-2 × sub/dub) → `getHosterList: all streams failed`.
+- Reproduced live from sandbox: `GET megaplay.buzz/stream/getSources?id=2234&type=sub` returns `{"tracks":[...], "enc":"..."}` — NO plaintext `sources` key. ROOT CAUSE: megaplay encrypted its getSources response.
+- Extracted the decryption from megaplay's own `lib/newclient.min.js`: AES-256-CBC, key `"i?LMTAx0Q6,:}50U"` zero-padded to 32 bytes, IV `"W0;27ToaUpl_P%'c"`, base64url. Verified by decrypting a live blob with openssl → `{"file":"https://cdn.imgnex.top/.../master.m3u8"}`.
+- Discovered `getSourcesNew?id=X&type=Y` is BACK and plaintext on ALL hosts (megaplay's own GetSourcesRewrite module rewrites getSources→getSourcesNew the same way). New m3u8 hosts rotate (megap.shiora.site / megap.mikora.top / s1.akirax.buzz) and are WAF-free.
+- Verified the new segment architecture: all segments on p16/p19-ad-site-sign-sg.tiktokcdn.com with a 252-byte PNG prefix (existing stripPngHeader handles: IEND@62, TS@252, scan window 400 ✓); signed URLs, Referer-agnostic; megaplay = single 1080p variant; VidPlay-1 (s1.akirax.buzz) = 1080/720/360.
+- Checked yuzono/anime-extensions anikototheme reference: they do NOT handle enc either (would fail the same way).
+- FIX: new `video/MegaPlayDecrypt.kt` (AES-256-CBC decryptor); `AnikotoExtractors.fetchSourcesData()` tries getSourcesNew first, then getSources + enc decrypt; dual-shape parser; per-host API Referer; DTO gained `enc` + nullable `file`.
+- FEATURE: "Preferred domain" setting — 6 verified domains (anikototv.to primary, anikoto.cz, anikoto.me, anikoto.net, anikototv.se, anikototv.com — from anikoto.site, the site's own domain hub + probing). ListPreference at the top of Playback; `Anikoto.kt baseUrl` now lazy-reads the pref. Source ID is domain-independent → no orphaned anime; relative episode URLs follow the domain.
+- Version bump: extVersionCode 9→10 (v16.10), versionId stays 11 STABLE. EXTENSION_VERSION + site-config.ts + README + EXTENSIONS.md registry + EXTENSION.md + APK_INFO.md + module docs 03/05 updated. Session log written (2026-09-09_session-52).
+
+Stage Summary:
+- ★ AniKoto 180 v16.10 (build 10): megaplay encrypted-source fix + 6-domain preferred-domain setting.
+- ★ Key insight: megaplay flip-flops between getSources/getSourcesNew and now encrypts responses — the extension handles BOTH shapes and can decrypt `enc` if getSourcesNew gets encrypted too.
+- ★ All 6 domains verified live (HTTP 200). Mirror hosts for video are WAF-free; cdn.imgnex.top is WAF-blocked (avoid).
+- ⏳ On-device playback verification pending — user tests per project rule §9.

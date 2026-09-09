@@ -45,16 +45,20 @@ data class SkipData(
     val outro: List<Float> = emptyList(),
 )
 
-// ── VidTube sources: /stream/getSourcesNew?id=<data-id>&type=<audio> ─────────
+// ── VidTube sources: /stream/getSources(New)?id=<data-id>&type=<audio> ───────
+// ★ session 52: megaplay.buzz now ENCRYPTS the video URL — the response carries an
+// `enc` blob (AES-256-CBC, see video/MegaPlayDecrypt.kt) instead of plaintext
+// sources.file. Both shapes are handled by the parser in AnikotoExtractors.
 @Serializable
 data class VidTubeSourcesResponse(
     val sources: VidTubeSources? = null,
     val tracks: List<VidTubeTrack> = emptyList(),
+    val enc: String? = null,
 )
 
 @Serializable
 data class VidTubeSources(
-    val file: String = "",
+    val file: String? = null,
 )
 
 @Serializable

@@ -3879,3 +3879,21 @@ Stage Summary:
 - ★ Key insight: megaplay flip-flops between getSources/getSourcesNew and now encrypts responses — the extension handles BOTH shapes and can decrypt `enc` if getSourcesNew gets encrypted too.
 - ★ All 6 domains verified live (HTTP 200). Mirror hosts for video are WAF-free; cdn.imgnex.top is WAF-blocked (avoid).
 - ⏳ On-device playback verification pending — user tests per project rule §9.
+
+---
+Task ID: anikoto-session-53
+Agent: Main Agent (Z.ai Code)
+Task: Upload the built AniKoto 180 v16.10 release APK to Confused-Creature-180/aniyomi-extensions so existing v16.9 users can update.
+
+Work Log:
+- Cloned Confused-Creature-180/aniyomi-180 repo with user PAT. Anatomy: `repo` branch = Aniyomi extension index (index.json/index.min.json/repo.json + apk/), `main` = Pages site + apk/ direct download + dev/ source copy.
+- Confirmed session 52 artifacts: tag v16.10 pushed, Release workflow run 34351401459 SUCCESS, asset aniyomi-en.anikoto180-v16.10-release.apk (270,953 bytes) downloaded.
+- Pre-flight: keytool cert SHA256 of new APK == old v16.9 APK == repo.json signingKeyFingerprint (b467ca...6a5a) → in-place update safe. DEX contains MegaPlayDecrypt + getSourcesNew + domain list → fix verified inside APK. Source id unchanged.
+- repo branch commit 3129237: APK swap v16.9→v16.10 (rename, Bin 268142→270953) + index.json/index.min.json updated to code=10, version=16.10. Nothing else touched.
+- main branch commit e427c5e: same APK swap in apk/ folder. dev/ left untouched (user: "don't mess with this repo too much"). No Releases created (distro repo has none).
+- Live verification: raw index.min.json serves code 10; APK URL 200 with sha256 identical to CI asset; main apk/ 200. Pages site auto-reflects index (loads index.min.json at runtime).
+- Session log: 2026-09-09_session-53_publish-v16.10-to-distribution-repo.md
+
+Stage Summary:
+- ★ AniKoto 180 v16.10 is now published on the Confused-Creature-180 repo — Aniyomi users on v16.9 get the update prompt and can install over the old APK (same signing key).
+- ★ Full chain complete: fix → v16.10 tag → Actions release → signed APK → distribution repo (index + apk/) → verified live.

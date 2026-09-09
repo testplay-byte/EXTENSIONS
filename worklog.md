@@ -3915,3 +3915,21 @@ Stage Summary:
 - ★ Site now visibly announces v16.10 with a one-tap APK download and can never show a stale release (cache-busting + index-synced banner).
 - ★ In-app update path confirmed end-to-end: index.min.json (code 10, spec-compliant format) + signed v16.10 APK on the repo branch; identical signature → in-place update.
 - ★ Mobile: horizontal overflow eliminated (pre-existing bug, fixed as part of "improve everything").
+
+---
+Task ID: anikoto-session-53c
+Agent: Main Agent (Z.ai Code)
+Task: Fix user-reported issues on the distribution repo — downloads failing (site + app), version stuck at 16.9, wrong pre-install icon.
+
+Work Log:
+- Verified against real app source (aniyomiorg/aniyomi AnimeExtensionApi/AnimeExtensionStoreService/NetworkLegacy models — Animiru is a DMCA'd fork of it): repo checks are gated to once per day; APK/icon URLs are {indexBase}/apk/{apk} and {indexBase}/icon/{pkg}.png; index field set + repo.json shape must match NetworkLegacyAnimeExtension / NetworkLegacyAnimeExtensionRepo.
+- Root cause 1 (downloads): removing the v16.9 APK on publish → every client with a cached ≤24h index got 404 on the v16.9 filename (app Install + cached browser pages). Restored v16.9 APK on repo/apk/ + main/apk/. RULE: never delete the previous APK on publish.
+- Root cause 2 (icon): repo-branch icon/{pkg}.png was the branded 1-8-0 artwork, not the APK's launcher icon (flower, md5 b14f03…, triple-verified vs APK dex res + dev source + site asset). Replaced with the real icon.
+- Non-issues confirmed: repo.json (official serves identical shape), index.min.json schema, URL layout.
+- Created distro GitHub Release v16.10 with the signed APK asset (README's Releases page now real).
+- Live verification: all 7 URL classes 200 (both APKs, icon md5-correct, index code 10, repo.json, release asset, main apk/).
+- App guidance delivered: remove + re-add repo to force refresh (or wait ≤24h); update installs in place.
+
+Stage Summary:
+- ★ All three user-reported issues root-caused and fixed with source-level evidence; publish rule captured: KEEP previous APKs.
+- ★ Distribution repo now fully consistent: index v16.10 + both APKs present + correct icon + release page.

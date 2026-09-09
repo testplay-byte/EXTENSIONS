@@ -57,3 +57,35 @@ release asset `aniyomi-en.anikoto180-v16.10-release.apk` (270,953 bytes).
 - Format cross-check per user request: official aniyomiorg `repo` branch index.min.json has the IDENTICAL field set (apk, code, lang, name, nsfw, pkg, sources / baseUrl, id, lang, name) → our index is spec-compliant for in-app updates. (yuzono has no `repo` branch index — non-blocking.)
 - Verified after Pages rebuild (agent-browser, fresh contexts): desktop + 390px mobile, light + dark, scrollW==clientW (overflow gone), banner badge v16.10, download href = v16.10 APK (byte-verified earlier), card badges v16.10.
 - NOTE for future: full-page stitched screenshots don't trigger IntersectionObserver reveals — sections LOOK blank in --full captures; scroll + viewport screenshots are the reliable check.
+
+## Addendum 2 (same session) — user-reported regressions: download 404s + stale 16.9 + wrong icon
+Commits: repo branch `f16cf44`, main `378bb6e` + distro Release `v16.10` (id 385571039).
+
+### Root causes found (verified against app source, not guessed)
+1. **Download 404s ("can't download" / "version shows 16.9")**: publishing v16.10 DELETED the v16.9 APK
+   from `repo/apk/`. AnimeExtensionApi (aniyomiorg/aniyomi, Animiru is a fork) gates repo checks to
+   ONCE PER DAY (`last_ext_check` + 24h) — so every client that fetched the index before the publish
+   still held `apk: …v16.9-release.apk` and got HTTP 404 on Install/Update. Browsers with cached
+   pages hit the same 404. → FIX: keep old APKs alongside new ones (v16.9 restored next to v16.10 on
+   both `repo/apk/` and `main/apk/`). RULE for future publishes: NEVER delete the previous APK.
+2. **Wrong icon pre-install**: the app builds icon URLs as `{indexBase}/icon/{pkg}.png` from the repo
+   branch; that file was the "custom 1-8-0 branded" artwork (md5 d6706…) while the actual APK launcher
+   icon is the flower (md5 b14f03… — identical to dev-source mipmap-xxxhdpi and the site's bundled
+   icon). → FIX: repo-branch icon replaced with the real APK icon. Same file now everywhere.
+3. **NOT bugs** (verified from source + ground truth): repo.json shape is correct — official
+   aniyomiorg repo.json has the identical {meta:{name,website,signingKeyFingerprint}} shape;
+   index.min.json field set matches NetworkLegacyAnimeExtension exactly; URL schemes
+   `{base}/apk/{apk}` + `{base}/icon/{pkg}.png` match our layout.
+
+### Extra deliverable
+- GitHub Release `v16.10` created on the distro repo with the signed APK (README already advertised a
+  Releases page; release assets download reliably on mobile via Content-Disposition).
+
+### Verified live after push
+v16.9 APK 200 (268,142b) · v16.10 APK 200 (270,953b) · icon 200 md5 b14f03… · index code=10 v16.10 ·
+repo.json 200 · release asset 200 · main apk/ both 200.
+
+### User guidance (app refresh)
+App checks repos ≤1×/24h. To force now: Settings → Browse → Extension repos → remove + re-add the
+repo (guaranteed fresh index) — or wait ≤24h for the automatic check. Update installs over v16.9
+(same signing key).

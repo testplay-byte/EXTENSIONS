@@ -45,3 +45,15 @@ release asset `aniyomi-en.anikoto180-v16.10-release.apk` (270,953 bytes).
 - ★ dev/ source in the distro repo intentionally left at v16.9 (user asked for APK only —
   "don't mess with this repo too much").
 - ★ ntfy.sh notification sent to topic `THE-TASK-IS-DONE`.
+
+## Addendum (same session) — Pages site update + hardening (commits 1c8339c, 4d32f86)
+- User reported the site still looked stale (hit it during the ~30-min Pages rebuild + browser cache).
+- Verified live in a real browser BEFORE changes: cards already rendered v16.10 from the index (site is fully dynamic, no hardcoded versions anywhere).
+- Improvements shipped:
+  - `docs/js/app.js`: cache-busted index fetch (`?t=` + `cache:'no-cache'`) — site can never show a stale release again; `syncWhatsNew()` keeps the release banner version + download link in lockstep with the repo index.
+  - `docs/index.html` + `docs/extensions.html`: "Latest Update" banner — v16.10 changelog (playback fix, 6-domain setting), direct APK download button, in-app update hint.
+  - `docs/css/style.css`: `.whatsnew` styles (Cream Notebook tokens, washi-tape accent, responsive, dark-mode via tokens).
+  - Mobile overflow FIXES (pre-existing bugs found during verification): repo-url-box code wrapped (was 722px wide on 390px screens), install-methods grid `minmax(min(320px,100%),1fr)`, method-card min-width:0, `overflow-x: clip` safety net.
+- Format cross-check per user request: official aniyomiorg `repo` branch index.min.json has the IDENTICAL field set (apk, code, lang, name, nsfw, pkg, sources / baseUrl, id, lang, name) → our index is spec-compliant for in-app updates. (yuzono has no `repo` branch index — non-blocking.)
+- Verified after Pages rebuild (agent-browser, fresh contexts): desktop + 390px mobile, light + dark, scrollW==clientW (overflow gone), banner badge v16.10, download href = v16.10 APK (byte-verified earlier), card badges v16.10.
+- NOTE for future: full-page stitched screenshots don't trigger IntersectionObserver reveals — sections LOOK blank in --full captures; scroll + viewport screenshots are the reliable check.

@@ -3897,3 +3897,21 @@ Work Log:
 Stage Summary:
 - ★ AniKoto 180 v16.10 is now published on the Confused-Creature-180 repo — Aniyomi users on v16.9 get the update prompt and can install over the old APK (same signing key).
 - ★ Full chain complete: fix → v16.10 tag → Actions release → signed APK → distribution repo (index + apk/) → verified live.
+
+---
+Task ID: anikoto-session-53b
+Agent: Main Agent (Z.ai Code)
+Task: Update + improve the Confused-Creature-180 Pages site so users can download v16.10 from the page; verify the whole in-app update chain against reference repos.
+
+Work Log:
+- Diagnosed "stale page" report: Pages build for e427c5e had already gone live; site is fully dynamic (no hardcoded versions). User hit the rebuild window + browser cache.
+- app.js: cache-busted index.min.json fetch + syncWhatsNew() (banner auto-syncs version/download link with repo index).
+- index.html + extensions.html: added "Latest Update" release banner (v16.10 changelog, direct APK download, in-app update hint); matching .whatsnew CSS in the site's design system.
+- Found + fixed pre-existing mobile horizontal overflow (repo URL box 722px on 390px screens, minmax grid) — verified scrollWidth 430→390 in a fresh browser context.
+- Cross-checked index format vs official aniyomiorg repo branch: identical field set → in-app updates spec-compliant. yuzono has no repo-branch index (informational).
+- Verified live: Pages builds for 1c8339c + 4d32f86 both "built"; browser-verified desktop + mobile, light + dark; banner + cards show v16.10; download href correct; repo branch raw URLs still serve code 10.
+
+Stage Summary:
+- ★ Site now visibly announces v16.10 with a one-tap APK download and can never show a stale release (cache-busting + index-synced banner).
+- ★ In-app update path confirmed end-to-end: index.min.json (code 10, spec-compliant format) + signed v16.10 APK on the repo branch; identical signature → in-place update.
+- ★ Mobile: horizontal overflow eliminated (pre-existing bug, fixed as part of "improve everything").

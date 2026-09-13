@@ -3949,3 +3949,20 @@ Work Log:
 Stage Summary:
 - ★ Turnkey workflow folder ready: next session starts at /home/z/anikoto-workflow/README.md -> WORKFLOW.md Phase 1.
 - ★ Scraping toolchain installed + verified in /home/z/scrape-venv, researched only (user will say when to activate; LLM key for scrapegraphai still to be provided).
+
+---
+Task ID: anikoto-session-56
+Agent: Main Agent (Z.ai Code)
+Task: v16.12 TEST BUILD (no publish) — fix ep-8 Calamity server detection (only HD-2 shown, VidStream-2 missing), fix 480p-vs-360p quality label, rework Smart Search (Gemini API key + model selection + engine picker + specific error toasts, harden legacy Google scrape), harden extension against breakage; use scrapling/scrapegraphai and report on them honestly; never install Android SDK (CI builds only).
+
+Work Log:
+- Live diagnosis with scrapling (Fetcher + StealthyFetcher): site lists only Vidstream-2+HD-2 for ep-8; both iframes → megaplay s-2/474448/sub; Vidstream-2 has NO s= param, HD-2 ships ?s=bcdn; tcdn/default masters now 403 (fetch.nexabloom.top), bcdn master 200 (ncdn.imgnex.top) → root cause of missing server = hardcoded stale tcdn fallback. Player inline JS whitelists exactly {tcdn,bcdn}. Master ships RESOLUTION=640x360 NAME="480p" → quality mislabel root cause. Google scrape reproduced 429 "unusual traffic" bot-wall → legacy smart search failure explained.
+- Fixes: dynamic s-candidate discovery (iframe s → "X"!==s whitelist tokens → s= links → [bcdn,tcdn,""]) in AnikotoExtractors; RESOLUTION-first quality naming; dispatch matches any megaplay* host + generic Flow-A fallback for unknown hosts; SmartSearch rewritten (ResolveResult sealed, Gemini REST engine with key/model/test-button/precise error mapping, auto Gemini→Google fallback, legacy block classifiers: captcha/consent/JS-wall/sign-in/timeout); AnikotoSettings gains engine/key/model/test prefs (masked key summary); version 16.12 (code 12), extVersionId 11 untouched.
+- CI without local SDK (user rule: never install Android SDK in sandbox): release.yml gained publish=false mode → signed APKs as artifact only; 3 runs (2 compile-fix iterations: companion static testGemini, explicit sealed-Failure casts, builder imports) → run 34760414152 SUCCESS, artifact test-build-apks-v16.12; tree-sitter-kotlin added to scrape-venv as pre-push syntax gate.
+- Verified artifact: signature B4:67:CA:…:6A:5A (in-place install over v16.11), 280,558 bytes, sha256 4398474a…, DEX contains bcdn/"!==s"/Gemini endpoint/testGemini/all new prefs.
+- Docs: anikoto-workflow TOOLS.md §5 honest tool report (scrapling helpful; scrapegraphai needs LLM key, KeyError proven; tree-sitter adopted), REFERENCE §9, TROUBLESHOOTING §7-9; session-56 log; ntfy sent.
+
+Stage Summary:
+- ★ v16.12 TEST BUILD ready at /home/z/apk-staging/test-build-v16.12/aniyomi-en.anikoto180-v16.12-release.apk — NOT published (no tag/release/dist-repo change); publish = tag v16.12 + Phase 4 when user confirms.
+- ★ Adaptability: CDN-selector whitelist discovered from megaplay's own JS (self-updating), unknown hosts get generic Flow-A attempt, quality from RESOLUTION, smart-search failures self-explain.
+- ★ New rule recorded: never install Android SDK in sandbox; build via CI (release.yml publish=false for test builds).

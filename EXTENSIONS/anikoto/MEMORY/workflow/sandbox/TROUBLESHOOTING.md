@@ -130,3 +130,30 @@ case) before building.
   aistudio.google.com/apikey), and SPECIFIC failure toasts for the legacy path
   (bot-check / consent page / JS wall / sign-in wall / timeout / unparsable answer) and
   for Gemini (invalid key / quota 429 / model 404 / server 5xx / network).
+
+---
+
+## §10 (session 58) Smart search "no anime title could be read" / Test-Connection HTTP 400
+
+**Google engine extraction failure playbook:**
+1. Ask the user for the raw response (or have them enable Settings → Smart Search →
+   "Copy response" and paste the clipboard).
+2. Replay it through the strategy set: S0 `[{[Title]}]` lenient parser → S1/S2 (cap 100,
+   stop at `(`) → S2c → S3 → S4 → S5 → S6 → S6b (Japanese title) → S7 line scan.
+3. Historical bug (fixed v16.12): S2/S7 caps measured the WHOLE match INCLUDING the
+   parenthetical "(Japanese title: …)" → long answers never matched. Keep caps on the
+   title portion only.
+4. Validate any new regex offline: port to python and run against
+   `/home/z/probe-s58/validate_new_extractor.py` cases (user's real failure + live bracket
+   capture + regression capture).
+5. If the answer has NO detectable structure: improve the bracket instruction compliance
+   (short suffix on the clean query) — NEVER the whole prompt (v16.12 regression).
+
+**Gemini Test-Connection HTTP 400 playbook:**
+1. Reproduce the request with the internal test key (SECRETS.md) from any shell —
+   remember the error precedence: 404 = model doesn't exist; 400 INVALID_ARGUMENT = bad
+   payload; 400 FAILED_PRECONDITION (location) = payload is VALID, just geo-blocked.
+2. `thinkingConfig.thinkingBudget` is ONLY valid on gemini-2.5* — the 3.x family rejects it
+   with a bare INVALID_ARGUMENT that never mentions "thinking".
+3. Custom model ids must be exact API names (e.g. `gemini-3.1-flash-lite`); the UI error now
+   includes the model id + this hint.

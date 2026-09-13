@@ -3986,3 +3986,17 @@ Stage Summary:
 - ★ v16.13 TEST BUILD artifact for user testing — NO tag/release/dist-repo change. Publish later = tag v16.13 + Phase 4.
 - ★ Legacy smart-search root cause + fix proven against captured real pages; failure debugging = clipboard raw response.
 - ★ Repo is now self-sufficient for any new agent: start at EXTENSIONS/anikoto/AGENT_ONBOARDING.md.
+
+---
+Task ID: anikoto-session-58
+Agent: Main Agent (Z.ai Code)
+Task: v16.12 RELEASE — bracket title convention + legacy-engine extraction fix + Test-Connection fix + settings per user spec; publish authorized by user.
+
+Work Log:
+- Root-caused Test-Connection HTTP 400 with the user's test key (3.x rejects thinkingBudget; error never says "thinking" so the old retry never fired). thinkingConfig now only for gemini-2.5*.
+- Root-caused Google-engine "no title could be read" (80-char cap vs parenthetical Japanese title) and fixed via S0 lenient [{[Title]}] parser + widened S1/S2 (+S2c/S6b, S7 rework); bracket instruction verified live on AI Mode.
+- Settings: Gemini 3.1 Flash Lite default/top (no Recommended label), Smart Search ON, engine google, Copy response toggle (default off), Details rewrite.
+- Published v16.12 end-to-end (tag → Actions → dist repo repo+main → distro release) and verified (sha256, cert, index, old APKs intact).
+
+Stage Summary:
+- v16.12 live; both Smart Search bugs fixed with evidence; docs updated for agent handoff.

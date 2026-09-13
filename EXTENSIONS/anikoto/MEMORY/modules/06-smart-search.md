@@ -428,3 +428,62 @@ Gemini: error body ≤600). `Anikoto.kt` copies it to the clipboard on failure; 
 ### Prompt (Gemini only)
 Added: "If the query is already an anime title or close to one, return that title with spelling
 corrected." (LLM-tested — fixes one-word-title hallucinations, e.g. "frieren").
+
+---
+
+## ★ Session 58 (v16.12 RELEASE) — Bracket convention + extraction fix + Test-Connection fix
+
+> Supersedes the session-57 section where they conflict (model order/defaults, thinking config,
+> S2 caps, Details section, clipboard behavior).
+> Full detail: `MEMORY/session-logs/2026-09-13_session-58_v16.12-release-smartsearch-brackets.md`.
+
+### The `[{[Title]}]` bracket convention (user's design)
+Both engines now instruct the AI to wrap the title in rare brackets:
+- **Gemini prompt**: "reply with ONLY its English title wrapped inside these exact brackets:
+  [{[Title]}] — nothing else inside the brackets."
+- **Google query**: clean query + SHORT suffix `" (in your answer, wrap the anime title in
+  [{[ ]}] brackets)"` — live-verified 2026-09-13 that AI Mode honors it ("…iconic series
+  [{[\nNaruto , }] :"). Never send the whole prompt as the query (v16.12 bug).
+
+### Extraction strategies (final, in order)
+S0 `[{[Title]}]` LENIENT bracket parser (shared `extractBracketTitle` in companion; tolerates
+imperfect closers + newlines; skips empty captures + lowercase single words) →
+S1 is-titled/called/named/known-as (cap 100, stops at `(`) →
+S2 describing/looking-for/thinking-of/referring-to/asking-about is X (cap 100, stops at `(`) →
+S2c "the anime/series/show is X" → S3 "Would you like to know more about X" →
+S4 "Did you mean: X" → S5 quoted → S6 MAL/AniList slugs → S6b "Japanese title: X" romaji →
+S7 title-like line scan (parenthetical stripped BEFORE length checks, raw cap 120).
+**The session-57 S2 bug**: the 80-char cap included the parenthetical "(Japanese title: …)"
+→ answers like the user's (118 chars) never matched. Validated 3/3 on real responses
+(user's pasted failure, live bracket capture, session-57 regression capture).
+
+### Gemini request rules
+- thinkingConfig ONLY for `gemini-2.5*` models. The 3.x family rejects
+  `thinkingConfig.thinkingBudget` with a bare 400 INVALID_ARGUMENT ("Request contains an
+  invalid argument.") that never mentions "thinking" — proven with the internal test key
+  (geo-blocked, but the geo check runs AFTER payload validation, so 400-vs-404-vs-location
+  experiments are conclusive from the sandbox).
+- On any 400 with thinkingConfig attached → retry once without it.
+- Model existence check: bogus id → 404 NOT_FOUND; the three listed ids all exist.
+
+### Settings (current, v16.12)
+Categories: Playback · Servers · Episode metadata · **Smart Search** · **Details**.
+- Smart Search toggle: **ON by default**, summary "Search spelling correction and smarter
+  description searching".
+- Activation phrase: default `?` (unchanged); no dialog text (Details explains usage).
+- AI engine: "Google Gemini API" / "Google AI Search", **default google**; Gemini-only prefs
+  (key, model, custom, test) hidden while google is selected.
+- Gemini model: **Gemini 3.1 Flash Lite (top, default)** · Gemini 3.5 Flash Lite ·
+  Gemini 3.8 Flash · Custom model ID. No "Recommended" label.
+- **Copy response** (default OFF, bottom of Smart Search): ON → success copies
+  `Query: …\nTitle: …` (+ short toast); failure copies `Query: …\nError: …\n--- raw engine
+  response ---\n…`. Session-57's unconditional copy-on-failure removed.
+- **Details** category: exact usage text per user (trigger instructions, live
+  `Your phrase: "…"`, examples `? the anime with a russian girl` / `? narutp` /
+  `? anime about a spy`, `Note: ~5-8s latency per AI search.`); refreshes when the phrase
+  changes.
+
+### Validation artifacts
+`/home/z/probe-s58/` — `google_bracket_probe.py` (scrapling StealthyFetcher captures),
+`captures/bracket-narutp.txt` (live AI Mode bracket compliance),
+`validate_new_extractor.py` (3/3 PASS).

@@ -245,3 +245,39 @@ static-vs-instance access before pushing.
 - The LLM job it would have done (validate the smart-search prompt) was done via the z-ai
   LLM skill instead: exact-title anchoring added after catching a "frieren"→"My Hero
   Academia" hallucination; 7/7 then stable.
+
+---
+
+## 6. ★ SESSION 58 — second real-use report (bracket convention + Test-Connection proof)
+
+### Scrapling 0.4.15 — again the decisive tool ✅
+- `StealthyFetcher` (patchright Chromium) captured a REAL Google AI Mode answer for
+  `"narutp (in your answer, wrap the anime title in [{[ ]}] brackets)"` → AI Mode honored the
+  bracket instruction: `"Here is a quick overview of the iconic series [{[\nNaruto , }] :"`.
+  This single capture (a) proves the user's `[{[Title]}]` idea works on the legacy engine and
+  (b) provided the imperfect-closing sample that shaped the lenient S0 regex.
+- 2 of 3 probes in the same minute hit Google's 429 CAPTCHA (flaky per datacenter /16) —
+  captured text of the 429 page also re-validated the block-classifier markers.
+- Text extraction mirrored the extension's `document.body.innerText` (block tags → newlines)
+  so the line-based extractor could be validated on realistic input.
+- Artifacts: `/home/z/probe-s58/` (`google_bracket_probe.py`, `captures/`,
+  `validate_new_extractor.py` → 3/3 PASS: user's failing response, live bracket capture,
+  session-57 regression capture).
+
+### ScrapeGraphAI 2.2.4 — not used this session (honest verdict) ⚠️
+- Nothing this round needed LLM schema-mapping (both bugs were deterministic regex/request
+  bugs), and its LLM backend stays geo-blocked from this sandbox (the user's Gemini key hits
+  FAILED_PRECONDITION on the OpenAI-compat endpoint too). Using it would have added latency,
+  not evidence. Standing offer unchanged: for future "unknown new HTML/JSON schema" days, it
+  works the moment a non-geo-blocked LLM endpoint is provisioned in SECRETS.md.
+- Net after two sessions of real work: **scrapling = core diagnostic tool (keep)**;
+  **scrapegraphai = situational prototyping tool (still unproven on a real task)**.
+
+### Bonus: error-precedence probing with a geo-blocked Gemini key ✅
+The user's test key authenticates but is location-blocked (FAILED_PRECONDITION). Because the
+geo check runs AFTER payload validation and model lookup, sandbox curls still proved:
+- old request body (thinkingBudget) on gemini-3.5-flash-lite → 400 INVALID_ARGUMENT
+  (the user's exact Test-Connection error),
+- new body (no thinkingConfig) on all three 3.x models → payload-valid,
+- bogus model → 404 (so the three listed ids exist).
+Method recorded for future API debugging from blocked networks.

@@ -4026,3 +4026,15 @@ Work Log:
 
 Stage Summary:
 - AnimeKhor 180 v16.1 debug build on ext/animekhor; main untouched; dist repos untouched.
+
+---
+Task ID: animekhor-01 (build completion)
+Agent: Main Agent (Z.ai Code)
+Task: AnimeKhor 180 build cycle completed on ext/animekhor.
+
+Work Log:
+- Fixed empty-hosterList pipeline bug (modern Aniyomi would show no videos) via AniKoto dual-pipeline pattern; 3 CI compile-fix rounds to SUCCESS (test4, run 34775167587).
+- Artifact verified end-to-end (manifest + dex + icons); APK_INFO.md + session log addenda written.
+
+Stage Summary:
+- Deliverable ready for user device test: aniyomi-en.animekhor180-v16.1-debug.apk (artifact test-build-apks-v16.1-ak-test4). Branch unmerged; main + dist repos untouched.

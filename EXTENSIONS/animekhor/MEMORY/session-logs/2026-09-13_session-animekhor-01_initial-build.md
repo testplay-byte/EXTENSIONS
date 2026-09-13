@@ -102,3 +102,40 @@ with the AniKoto dual-pipeline pattern:
 The v16.1-ak-test1 CI run (#29) built the broken code → cancelled; v16.1-ak-test2 (#30) builds the fix.
 ★ Lesson: on ext-lib 16, "implement only the legacy pipeline" is NOT a valid shortcut — the modern
 pipeline is what current Aniyomi actually calls first. Always implement BOTH (or delegate one to the other).
+
+---
+
+## 9. Addendum 2 — build success (same session)
+
+CI history (all runs on branch ext/animekhor, release.yml publish=false):
+
+| Run | Tag | Result | Cause |
+|---|---|---|---|
+| #29 | v16.1-ak-test1 | cancelled | built the pre-getHosterList code (superseded) |
+| #30 | v16.1-ak-test2 | FAILURE | 6 Kotlin compile errors (tree-sitter can't catch semantics) |
+| #31 | v16.1-ak-test3 | FAILURE | 1 remaining error (PlaylistUtils.originOrNull return type) |
+| #31+ | v16.1-ak-test4 (run 34775167587) | **SUCCESS** | artifact `test-build-apks-v16.1-ak-test4` |
+
+Compile fixes (all committed bca27e3 + 7dce4d4):
+- `String.orNull()` extension must accept nullable receiver (`String?.orNull()`).
+- kotlinx-serialization imports (Json/jsonArray/jsonObject/jsonPrimitive) missing in
+  VidHideExtractor + VidaraExtractor → cascaded "Cannot infer type parameter R" on runCatching.
+- StreamWish `videosFromUrl` needed the lambda-param signature (not `prefix: String`) to match
+  trailing-lambda call sites (same style as VidHide).
+- PlaylistUtils: nullable `quality` chain needed `?: "source"` fallback;
+  `originOrNull()` needed an elvis fallback for the String return type.
+
+Artifact verified (APK_INFO.md): filename/package/versionName/extClass/label all correct,
+8 extractors + PlaylistUtils + JsUnpacker + Filters + selectors present in dex, 5 icon densities.
+SHA256 `9fd09877…f4a9`, 110,953 B.
+
+**Deliverable: `aniyomi-en.animekhor180-v16.1-debug.apk` from Actions artifact
+`test-build-apks-v16.1-ak-test4` — awaiting user device test. Branch stays UNMERGED.**
+
+★ Lessons (compile without local SDK):
+1. tree-sitter catches syntax, NOT types — budget for at least one CI compile round on a fresh
+   extension; read the kotlinc `e:` lines (they name exact lines) and fix in batch.
+2. When porting upstream extractor code, port the IMPORTS too — unresolved symbols cascade into
+   misleading inference errors far from the real cause.
+3. Extension-visible naming: `aniyomi-en.animekhor180-…` comes from `base.archivesName` — the
+   "180" suffix in applicationIdSuffix does NOT appear there automatically; archivesName is set explicitly.

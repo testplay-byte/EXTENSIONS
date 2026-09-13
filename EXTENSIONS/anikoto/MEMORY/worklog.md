@@ -46,3 +46,18 @@ Stage Summary:
 - ★ AnimeKhor 180 v16.1 (debug) ready for CI artifact on branch ext/animekhor — nothing merged, nothing published.
 - ★ page_reader = the CF-verification channel for this site (reusable next sessions).
 - ★ Search = episode→series slug mapping (novel fix for a site-side regression that breaks the upstream theme).
+
+---
+Task ID: animekhor-01 (build completion)
+Agent: Main Agent (Z.ai Code)
+Task: AnimeKhor 180 — CI build cycle to a working debug APK (branch ext/animekhor only).
+
+Work Log:
+- Caught (self-review, pre-CI) that an empty hosterListParse = ZERO videos on modern Aniyomi → implemented the AniKoto dual pipeline: getHosterList (Hoster per resolved mirror, mirror labels from option text) + legacy getVideoList flatten + app-called sortVideos override. Cancelled the stale test1 run.
+- CI compile rounds: test2 FAIL (6 errors: String?.orNull receiver, StreamWish lambda signature, PlaylistUtils nullable quality, missing kotlinx imports in VidHide/Vidara), test3 FAIL (1 error: originOrNull return), test4 SUCCESS (run 34775167587).
+- Verified artifact aniyomi-en.animekhor180-v16.1-debug.apk (110,953 B, sha256 9fd09877…f4a9): manifest label/extClass/package/versionName 16.1 ✅, all 8 extractors + PlaylistUtils + JsUnpacker + Filters in dex ✅, 5 icon densities ✅. APK_INFO.md written.
+
+Stage Summary:
+- ★ AnimeKhor 180 v16.1 DEBUG APK built and verified — awaiting user device test via Actions artifact test-build-apks-v16.1-ak-test4.
+- ★ Branch ext/animekhor remains UNMERGED (user instruction); no publish, no dist-repo touch.
+- ★ Lesson recorded: on ext-lib 16 always implement getHosterList (+legacy delegate); tree-sitter = syntax gate only, budget one CI compile round per fresh extension.

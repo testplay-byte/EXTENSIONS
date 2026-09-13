@@ -33,6 +33,7 @@ EXTENSIONS/<name>/
 |---|---|---|---|
 | AniKoto 180 | `anikoto/` | ✅ All features working | v16.12, Build 12 |
 | AnimePahe 180 | `animepahe/` | ✅ All features working | v16.10, Build 10 |
+| AnimeKhor 180 | `animekhor/` | 🚧 In progress (branch `ext/animekhor`) | v16.1, Build 1 |
 
 See `../MEMORY/EXTENSIONS.md` for the full project-wide registry.
 

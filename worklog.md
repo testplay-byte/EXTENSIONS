@@ -4013,3 +4013,16 @@ Work Log:
 
 Stage Summary:
 - AniKoto 180 closed in fully working state (v16.12). Handoff package complete: next agent starts at EXTENSIONS/anikoto/AGENT_ONBOARDING.md (committed) → workflow folder → latest session logs.
+
+---
+Task ID: animekhor-01
+Agent: Main Agent (Z.ai Code)
+Task: AnimeKhor 180 new extension on branch ext/animekhor (no merge, no publish).
+
+Work Log:
+- Full site analysis via page_reader (CF-proof channel); theme + endpoints + hosters verified live; official 2024 source + yuzono current fork used as references (Apache-2.0).
+- Implemented complete extension (catalog/search/details/episodes + 8 hoster extractors) + CI debug build step + full docs on branch ext/animekhor.
+- tree-sitter 13/13 pass; awaiting CI artifact for the user's device test.
+
+Stage Summary:
+- AnimeKhor 180 v16.1 debug build on ext/animekhor; main untouched; dist repos untouched.

@@ -30,3 +30,19 @@ Work Log:
 
 Stage Summary:
 - Project CLOSED in fully working state: v16.12 RELEASE live, everything user-confirmed, all docs at v16.12 facts, backup verified. Next agent: clone → EXTENSIONS/anikoto/AGENT_ONBOARDING.md → MEMORY/workflow/ → latest session logs.
+
+---
+Task ID: animekhor-01
+Agent: Main Agent (Z.ai Code)
+Task: NEW EXTENSION — AnimeKhor 180 (animekhor.org) on dedicated branch ext/animekhor; no merge to main, no publish. Full workflow: analyze → implement → CI test build.
+
+Work Log:
+- Site analysis under hard Cloudflare (managed challenge on every path): curl/scrapling-headless/patchright-headful+Turnstile-click all 403 from datacenter IP. Verification channel = z-ai page_reader (passes CF). Confirmed: .xyz→.org redirect, animestream WP theme (all selectors verified), search quirk (?s= returns episode posts → mapped to series, verified /anime/<slug> 200), filter form (218 genres/119 studios + status/type/sub/order), mirror options = base64 iframes.
+- Hosters: old episodes (streamwish/ahvsh/sbsonic/d000d/ok.ru/animeabc) + fresh episodes (dailymotion/ok.ru×2/rumble/turbovid/upns/p2pstream/vidara/bysekoze/abyss). Live-verified chains: dailymotion (metadata API→m3u8+subs), ok.ru (data-options), vidara (POST /api/stream→m3u8), abyss (datas→enc-dec.app→mp4s). Ported upstream (Apache-2.0): streamwish, vidhide, dood, rumble + PlaylistUtils-lite + vendored JsUnpacker. Deferred: upns/p2pstream/bysekoze (SPA RE needed), turbovid (no id), animeabc (broken).
+- Built EXTENSIONS/animekhor (branch ext/animekhor): independent Gradle project (anikoto scaffolding + stubs), AnimeKhor.kt (AnimeHttpSource direct, tolerant per-mirror dispatch), AnimeKhorFilters.kt (dynamic), 8 extractors, official icons (5 densities), metadata 16.1/versionId 1/…animekhor180, debug-only. CI "Build AnimeKhor (debug)" added to release.yml+build.yml (branch copies).
+- Gates: tree-sitter 13/13 OK (2 rounds; fixed URI host parse, missing import, Okru param shadowing, frozen FILTER_LIST). Stub API cross-checked. Docs: EXTENSION.md, MEMORY/sites/site-analysis.md, session log animekhor-01, registries.
+
+Stage Summary:
+- ★ AnimeKhor 180 v16.1 (debug) ready for CI artifact on branch ext/animekhor — nothing merged, nothing published.
+- ★ page_reader = the CF-verification channel for this site (reusable next sessions).
+- ★ Search = episode→series slug mapping (novel fix for a site-side regression that breaks the upstream theme).

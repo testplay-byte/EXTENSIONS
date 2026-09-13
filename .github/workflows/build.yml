@@ -66,6 +66,11 @@ jobs:
         working-directory: EXTENSIONS/uniquestream/DEV
         run: ./gradlew :src:en:uniquestream:assembleDebug --no-daemon --stacktrace
 
+      # ── AnimeKhor: debug only (no release keystore yet) ──
+      - name: Build AnimeKhor (debug)
+        working-directory: EXTENSIONS/animekhor/DEV
+        run: ./gradlew :src:en:animekhor:assembleDebug --no-daemon --stacktrace
+
       - name: Verify UniQuestream APK manifest & DEX
         continue-on-error: true
         run: |

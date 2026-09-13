@@ -93,7 +93,8 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
         mapOf("Referer" to it).toHeaders()
     } ?: okhttp3.Headers.headersOf()
 
-    private fun String.originOrNull(): String = this.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}/" }
+    private fun String.originOrNull(): String =
+        this.toHttpUrlOrNull()?.let { "${it.scheme}://${it.host}/" } ?: this
 
     companion object {
         private val SUBTITLE_REGEX =

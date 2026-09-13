@@ -84,3 +84,21 @@ Branch `ext/animekhor` (from main). `EXTENSIONS/animekhor/` full workspace:
   ("DPlayer: Video Not Available" options are normal on this site).
 - Next session: user device feedback → fix cycle on the same branch (one change at a time);
   keystore + release pipeline only after the user approves.
+
+---
+
+## 8. Addendum — video-pipeline fix (same session, pre-artifact)
+
+Self-review caught a critical bug in the first commit: only the LEGACY `getVideoList(episode)`
+was implemented while `hosterListParse` returned empty — on modern Aniyomi (ext-lib 16) the app
+calls **`getHosterList(episode)`** first and would have shown ZERO videos. Fixed (commit 8fe3326)
+with the AniKoto dual-pipeline pattern:
+
+- `getHosterList(episode)` — one `Hoster(hosterUrl=embed, hosterName=mirrorLabel, videoList=…)`
+  per mirror that actually resolved; empty mirrors dropped entirely.
+- `getVideoList(episode)` — flattens the hoster list (legacy forks).
+- Sorting moved to the app-called `List<Video>.sortVideos()` override (preferred server → quality → resolution).
+
+The v16.1-ak-test1 CI run (#29) built the broken code → cancelled; v16.1-ak-test2 (#30) builds the fix.
+★ Lesson: on ext-lib 16, "implement only the legacy pipeline" is NOT a valid shortcut — the modern
+pipeline is what current Aniyomi actually calls first. Always implement BOTH (or delegate one to the other).

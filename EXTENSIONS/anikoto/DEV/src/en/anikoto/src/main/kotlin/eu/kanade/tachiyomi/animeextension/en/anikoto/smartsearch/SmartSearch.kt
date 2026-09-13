@@ -168,7 +168,7 @@ class SmartSearch(
                         return googleResult
                     }
                     val geminiWhy = (geminiResult as ResolveResult.Failure).userMessage
-                    val googleWhy = googleResult.userMessage
+                    val googleWhy = (googleResult as ResolveResult.Failure).userMessage
                     return ResolveResult.Failure(
                         "Gemini failed ($geminiWhy); Google fallback failed ($googleWhy)",
                     )
@@ -294,53 +294,54 @@ class SmartSearch(
      * Self-contained (own client) so the settings screen can call it without a
      * SmartSearch instance. @return null on success, or a user-facing error message.
      */
-    fun testGemini(apiKey: String, model: String): String? {
-        if (apiKey.isBlank()) return "Gemini API key is not set — paste your key first"
-        val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .build()
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent"
-        val payload = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Reply with exactly: OK\"}]}]}"
-        return try {
-            client.newCall(
-                Request.Builder()
-                    .url(url)
-                    .header("x-goog-api-key", apiKey.trim())
-                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
-                    .build()
-            ).execute().use { resp ->
-                val body = resp.body?.string().orEmpty()
-                if (resp.isSuccessful) null
-                else describeGeminiHttpErrorStatic(resp.code, body)
+    companion object {
+        fun testGemini(apiKey: String, model: String): String? {
+            if (apiKey.isBlank()) return "Gemini API key is not set — paste your key first"
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent"
+            val payload = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Reply with exactly: OK\"}]}]}"
+            return try {
+                client.newCall(
+                    Request.Builder()
+                        .url(url)
+                        .header("x-goog-api-key", apiKey.trim())
+                        .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                        .build()
+                ).execute().use { resp ->
+                    val body = resp.body?.string().orEmpty()
+                    if (resp.isSuccessful) null
+                    else describeGeminiHttpErrorStatic(resp.code, body)
+                }
+            } catch (e: java.io.IOException) {
+                "Could not reach the Gemini API (network error: ${e.javaClass.simpleName})"
+            } catch (e: Exception) {
+                "Test request failed: ${e.message?.take(80)}"
             }
-        } catch (e: java.io.IOException) {
-            "Could not reach the Gemini API (network error: ${e.javaClass.simpleName})"
-        } catch (e: Exception) {
-            "Test request failed: ${e.message?.take(80)}"
+        }
+
+        /** Static mirror of [describeGeminiHttpError] for [testGemini]. */
+        private fun describeGeminiHttpErrorStatic(code: Int, body: String): String {
+            val apiMessage = try {
+                (Json { ignoreUnknownKeys = true; isLenient = true }
+                    .parseToJsonElement(body).jsonObject["error"]?.jsonObject?.get("message")
+                    ?.jsonPrimitive?.content)?.take(120)
+            } catch (_: Exception) { null }
+            val prefix = when (code) {
+                400 -> if (apiMessage?.contains("API key not valid", true) == true)
+                    "Gemini API key is invalid (re-check the pasted key)"
+                else "Gemini rejected the request (HTTP 400)"
+                401, 403 -> "Gemini API key was rejected (HTTP $code) — invalid, restricted, or Generative Language API not enabled for it"
+                404 -> "Model not found (HTTP 404) — pick a different model"
+                429 -> "Gemini quota exceeded (HTTP 429) — free-tier limit, try later or switch model"
+                in 500..599 -> "Gemini server error (HTTP $code) — Google-side problem"
+                else -> "Gemini API error (HTTP $code)"
+            }
+            return if (apiMessage != null) "$prefix — ${apiMessage}" else prefix
         }
     }
-
-    /** Static mirror of [describeGeminiHttpError] for [testGemini]. */
-    private fun describeGeminiHttpErrorStatic(code: Int, body: String): String {
-        val apiMessage = try {
-            (jsonStatic.parseToJsonElement(body).jsonObject["error"]?.jsonObject?.get("message")
-                ?.jsonPrimitive?.content)?.take(120)
-        } catch (_: Exception) { null }
-        val prefix = when (code) {
-            400 -> if (apiMessage?.contains("API key not valid", true) == true)
-                "Gemini API key is invalid (re-check the pasted key)"
-            else "Gemini rejected the request (HTTP 400)"
-            401, 403 -> "Gemini API key was rejected (HTTP $code) — invalid, restricted, or Generative Language API not enabled for it"
-            404 -> "Model not found (HTTP 404) — pick a different model"
-            429 -> "Gemini quota exceeded (HTTP 429) — free-tier limit, try later or switch model"
-            in 500..599 -> "Gemini server error (HTTP $code) — Google-side problem"
-            else -> "Gemini API error (HTTP $code)"
-        }
-        return if (apiMessage != null) "$prefix — ${apiMessage}" else prefix
-    }
-
-    private val jsonStatic = Json { ignoreUnknownKeys = true; isLenient = true }
 
     // ── Engine 2: Google AI search scraping (legacy, hardened) ───────────
 

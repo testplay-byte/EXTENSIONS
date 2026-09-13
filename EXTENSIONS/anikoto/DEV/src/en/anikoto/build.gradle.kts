@@ -20,7 +20,18 @@ android {
         // loader use it as-is → finds the class at ...anikoto.Anikoto. Verified in the loader source:
         // SHARED/REFERENCE_HUB/aniyomi-app/.../AnimeExtensionLoader.kt:297-301.
         val extClass = "eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto"
-        val extVersionCode = 13 // v16.13 (session 57 TEST BUILD: Smart Search settings overhaul — 2-option engine picker (Gemini API / Google AI Search), Gemini 3.x model list (default 3.5 Flash-Lite) + custom model id, no-description metadata toggles, conditional Gemini-UI visibility; legacy Google engine root-cause fix (clean query instead of full prompt) + streamed-answer stabilization wait + 7-strategy title extraction; clipboard copy of raw response on failure; thinking-disabled Gemini requests with reject-retry; usage-focused settings details)
+        // ★ session 58 / v16.12 RELEASE: the test builds were v16.12 (s56) and v16.13 (s57);
+        // per the user's explicit decision the PUBLISHED release takes the number 16.12
+        // (do NOT go to 16.13/16.14 — "leave 16.13, stick with 16.12 as the release one").
+        // Smart Search fixes: [{[ ]}] bracket title convention on both engines (S0 lenient
+        // extractor), widened legacy-engine strategies (fixes "no anime title could be read"
+        // on '…looking for is X (Japanese title: …)' answers), Test-Connection fix
+        // (thinkingConfig only for gemini-2.5* — 3.x models rejected it with HTTP 400),
+        // default model = Gemini 3.1 Flash Lite (top of list, no "Recommended" label),
+        // defaults: Smart Search ON + engine Google AI Search, "Copy response" toggle
+        // (default OFF; query+title on success, query+error+raw on failure), Details
+        // section rewritten to usage instructions.
+        val extVersionCode = 12
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

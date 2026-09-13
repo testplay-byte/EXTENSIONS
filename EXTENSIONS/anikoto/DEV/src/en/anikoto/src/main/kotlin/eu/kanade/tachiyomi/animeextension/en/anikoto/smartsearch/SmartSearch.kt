@@ -47,6 +47,13 @@ import java.util.concurrent.TimeUnit
  *    CLEAN query, waits for the streamed AI answer to stabilize, uses a much wider
  *    extraction strategy set, and on failure copies the whole rendered response to
  *    the clipboard for debugging.
+ *    ★ session 58: BOTH engines now ask the AI to wrap the title in rare
+ *    `[{[Title]}]` brackets (Gemini via the prompt, Google via a SHORT suffix
+ *    appended to the clean query — verified live 2026-09-13 that AI Mode honors
+ *    it). The lenient bracket parser is strategy S0; the sentence strategies were
+ *    also widened (the 80-char cap previously missed answers like
+ *    "The anime you are looking for is X (Japanese title: …)." — the user's
+ *    reported failure).
  *
  * ## Engine selection (settings)
  * - `gemini` (default): Gemini only.
@@ -198,6 +205,11 @@ class SmartSearch(
      * ★ session 57: thinking disabled (fast, deterministic single-title answers);
      * models that reject the thinking config are retried once without it.
      * maxOutputTokens raised 512 → 2048 so thinking-enabled models can still emit text.
+     * ★ session 58 FIX (Test Connection HTTP 400): thinkingConfig is ONLY sent to
+     * gemini-2.5* models — the 3.x family rejects `thinkingBudget` with a bare
+     * "Request contains an invalid argument." (no "thinking" keyword, so the old
+     * message-based retry never fired; verified live with a real key). On ANY 400
+     * with thinkingConfig attached we now retry once without it.
      */
     private fun resolveWithGemini(query: String, apiKey: String, model: String): ResolveResult {
         if (apiKey.isBlank()) {
@@ -210,13 +222,11 @@ class SmartSearch(
         AnikotoLog.i("SmartSearch: Gemini resolve via $model")
         return try {
             val prompt = buildPrompt(query)
-            var resp = postGemini(geminiClient, url, apiKey, buildGeminiRequestBody(prompt, disableThinking = true))
-            if (resp.first == 400) {
-                val apiMsg = geminiApiErrorMessage(resp.second)
-                if (apiMsg != null && apiMsg.contains("thinking", ignoreCase = true)) {
-                    AnikotoLog.i("SmartSearch: model rejected thinkingConfig — retrying without it")
-                    resp = postGemini(geminiClient, url, apiKey, buildGeminiRequestBody(prompt, disableThinking = false))
-                }
+            val tryThinking = model.trim().startsWith("gemini-2.5")
+            var resp = postGemini(geminiClient, url, apiKey, buildGeminiRequestBody(prompt, withThinkingConfig = tryThinking))
+            if (resp.first == 400 && tryThinking) {
+                AnikotoLog.i("SmartSearch: model rejected thinkingConfig — retrying without it")
+                resp = postGemini(geminiClient, url, apiKey, buildGeminiRequestBody(prompt, withThinkingConfig = false))
             }
             val (code, respBody) = resp
             if (code in 200..299) {
@@ -227,7 +237,7 @@ class SmartSearch(
                         respBody.take(600),
                     )
             } else {
-                ResolveResult.Failure(describeGeminiHttpError(code, respBody), respBody.take(600))
+                ResolveResult.Failure(describeGeminiHttpError(code, respBody, model), respBody.take(600))
             }
         } catch (e: java.io.IOException) {
             AnikotoLog.e("SmartSearch: Gemini network error", e)
@@ -261,6 +271,8 @@ class SmartSearch(
                 return null
             }
             AnikotoLog.d("SmartSearch: Gemini raw answer: ${AnikotoLog.trunc(text, 200)}")
+            // ★ session 58: the prompt asks for [{[Title]}] — try bracket extraction first
+            extractBracketTitle(text)?.let { return it }
             cleanTitle(text)
         } catch (e: Exception) {
             AnikotoLog.e("SmartSearch: Gemini response parse failed", e)
@@ -296,8 +308,14 @@ class SmartSearch(
             }
         }
 
-        /** Build the generateContent JSON body (prompt + deterministic generation config). */
-        fun buildGeminiRequestBody(prompt: String, disableThinking: Boolean): String {
+        /** Build the generateContent JSON body (prompt + deterministic generation config).
+         *  ★ session 58: thinkingConfig is attached ONLY when [withThinkingConfig] — it is
+         *  valid on the gemini-2.5 family and REJECTED by the 3.x family with a bare
+         *  "Request contains an invalid argument." (verified live 2026-09-13 with a real
+         *  key: thinkingBudget=0 on gemini-3.5-flash-lite → 400 INVALID_ARGUMENT, while
+         *  the same payload without thinkingConfig passes validation everywhere).
+         *  This was the root cause of the user's "Test connection: HTTP 400" report. */
+        fun buildGeminiRequestBody(prompt: String, withThinkingConfig: Boolean): String {
             val payload = buildJsonObject {
                 put("contents", buildJsonArray {
                     add(buildJsonObject {
@@ -310,7 +328,7 @@ class SmartSearch(
                 put("generationConfig", buildJsonObject {
                     put("temperature", kotlinx.serialization.json.JsonPrimitive(0.1))
                     put("maxOutputTokens", kotlinx.serialization.json.JsonPrimitive(2048))
-                    if (disableThinking) {
+                    if (withThinkingConfig) {
                         put("thinkingConfig", buildJsonObject {
                             put("thinkingBudget", kotlinx.serialization.json.JsonPrimitive(0))
                         })
@@ -320,6 +338,27 @@ class SmartSearch(
             return payload.toString()
         }
 
+        /**
+         * ★ session 58: LENIENT `[{[ Title ]}]` bracket extraction (strategy S0, shared by
+         * both engines). Tolerates Google AI Mode's imperfect compliance seen live:
+         * "[{[Naruto]}]", "[{[\nNaruto , }] :", "[{[ Attack on Titan ]}]".
+         * Skips empty/short captures (the query echo contains a literal "[{[ ]}]" from the
+         * instruction suffix) and lowercase single words ("[{[yes]}]" junk guard).
+         */
+        fun extractBracketTitle(text: String): String? {
+            val pattern = Regex("""\[\{\[([^\]\}]{2,120}?)[\]\}]""")
+            for (match in pattern.findAll(text)) {
+                var s = match.groupValues[1].replace(Regex("\\s+"), " ").trim()
+                s = s.trim(' ', ',', '.', ':', ';', '!', '?', '"', '\'', '\u201C', '\u201D')
+                if (s.length < 2 || s.length > 80) continue
+                val words = s.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                if (words.isEmpty() || words.size > 12) continue
+                if (words.size == 1 && words[0].firstOrNull()?.isUpperCase() != true) continue
+                return s
+            }
+            return null
+        }
+
         /** Pull the human-readable message out of a Gemini error body (null if none). */
         fun geminiApiErrorMessage(body: String): String? = try {
             (Json { ignoreUnknownKeys = true; isLenient = true }
@@ -327,19 +366,22 @@ class SmartSearch(
                 ?.jsonPrimitive?.content)?.take(160)
         } catch (_: Exception) { null }
 
-        /** Map a Gemini HTTP error to a specific, user-facing message. */
-        fun describeGeminiHttpError(code: Int, body: String): String {
+        /** Map a Gemini HTTP error to a specific, user-facing message.
+         *  ★ session 58: includes the model id in 400/404 messages and hints at the
+         *  exact-API-name requirement for custom model ids. */
+        fun describeGeminiHttpError(code: Int, body: String, model: String): String {
             val apiMessage = geminiApiErrorMessage(body)
+            val m = model.trim()
             val prefix = when (code) {
                 400 -> when {
                     apiMessage?.contains("API key not valid", true) == true ->
                         "Gemini API key is invalid (check Settings → Smart Search)"
                     apiMessage?.contains("location is not supported", true) == true ->
                         "Google blocks the Gemini API for this network/region (country or VPN restriction) — try another network"
-                    else -> "Gemini rejected the request (HTTP 400)"
+                    else -> "Gemini rejected the request for model \"$m\" (HTTP 400) — if \"$m\" is a custom model ID it must exactly match Google's API model name"
                 }
                 401, 403 -> "Gemini API key was rejected (HTTP $code) — invalid, restricted, or Gemini API disabled for this key"
-                404 -> "Gemini model not found (HTTP 404) — pick a different model in Settings"
+                404 -> "Gemini model \"$m\" not found (HTTP 404) — pick one of the listed models, or enter the exact API model ID for custom models"
                 429 -> "Gemini quota exceeded (HTTP 429) — free-tier limit hit, try again later or switch model"
                 in 500..599 -> "Gemini server error (HTTP $code) — Google-side problem, try again"
                 else -> "Gemini API error (HTTP $code)"
@@ -355,14 +397,13 @@ class SmartSearch(
             if (apiKey.isBlank()) return "Gemini API key is not set — paste your key first"
             val url = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent"
             return try {
-                var resp = postGemini(testClient, url, apiKey, buildGeminiRequestBody("Reply with exactly: OK", disableThinking = true))
-                if (resp.first == 400) {
-                    val apiMsg = geminiApiErrorMessage(resp.second)
-                    if (apiMsg != null && apiMsg.contains("thinking", ignoreCase = true)) {
-                        resp = postGemini(testClient, url, apiKey, buildGeminiRequestBody("Reply with exactly: OK", disableThinking = false))
-                    }
+                // ★ session 58: same model-aware thinkingConfig logic as the search path
+                val tryThinking = model.trim().startsWith("gemini-2.5")
+                var resp = postGemini(testClient, url, apiKey, buildGeminiRequestBody("Reply with exactly: OK", withThinkingConfig = tryThinking))
+                if (resp.first == 400 && tryThinking) {
+                    resp = postGemini(testClient, url, apiKey, buildGeminiRequestBody("Reply with exactly: OK", withThinkingConfig = false))
                 }
-                if (resp.first in 200..299) null else describeGeminiHttpError(resp.first, resp.second)
+                if (resp.first in 200..299) null else describeGeminiHttpError(resp.first, resp.second, model)
             } catch (e: java.io.IOException) {
                 "Could not reach the Gemini API (network error: ${e.javaClass.simpleName})"
             } catch (e: Exception) {
@@ -385,10 +426,18 @@ class SmartSearch(
      * (verified live with a stealth-browser probe), and on failure the FULL
      * rendered response is returned in Failure.detail so the app can copy it
      * to the clipboard for debugging.
+     * ★ session 58: a SHORT format instruction is appended to the clean query
+     * ("(in your answer, wrap the anime title in [{[ ]}] brackets)") so AI Mode
+     * self-labels the title — verified live 2026-09-13 that it honors it
+     * ("the iconic series [{[\nNaruto , }] :"). The S0 bracket parser tolerates
+     * imperfect closing; strategies S1–S7 remain as fallback for when it doesn't.
      */
     private fun resolveWithGoogle(query: String): ResolveResult {
         val cleanQuery = query.trim().let { if (it.endsWith("anime", ignoreCase = true)) it else "$it anime" }
-        val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
+        // ★ session 58: SHORT format instruction (NEVER the whole LLM prompt — that was
+        // the v16.12 bug). AI Mode reads it as part of the question and wraps the title.
+        val queryWithFormat = "$cleanQuery (in your answer, wrap the anime title in [{[ ]}] brackets)"
+        val encodedQuery = URLEncoder.encode(queryWithFormat, "UTF-8")
         val googleUrl = "https://www.google.com/search?q=$encodedQuery&udm=50&hl=en"
         AnikotoLog.d("SmartSearch: Google URL: ${AnikotoLog.trunc(googleUrl, 120)}")
 
@@ -451,31 +500,29 @@ class SmartSearch(
         }
     }
 
-    // ── Prompt + title extraction (session 51, unchanged logic) ──────────
+    // ── Prompt + title extraction (session 51/58) ────────────────────
 
     /**
-     * Build the AI prompt with smarter instructions (★ session 57, LLM-tested).
+     * Build the AI prompt (★ session 58: `[{[Title]}]` bracket convention).
      *
-     * Used by the GEMINI engine only. The Google engine deliberately does NOT use
-     * this — sending instruction text to a search engine pollutes the query
-     * (that was the v16.12 legacy-engine bug).
+     * Used by the GEMINI engine. The Google engine gets the same formatting
+     * requirement via a SHORT suffix on the clean query (see [resolveWithGoogle]) —
+     * never the whole prompt (that was the v16.12 legacy-engine bug).
      *
-     * The prompt is wrapped in brackets and includes:
-     * - Exact-title anchoring (verified to stop wrong-genre hallucinations on
-     *   one-word queries like "frieren")
-     * - The user's query
-     * - Scenario handling: descriptions, misspellings, genre/vague queries
-     * - Instructions to return only ONE English anime title
+     * The user's idea (session 58): make the AI self-label the title with rare
+     * brackets `[{[…]}]` that our parser can detect unambiguously. Scenario
+     * handling (descriptions, misspellings, genre/vague queries) is kept from
+     * session 57's LLM-tested prompt, and the exact-title anchoring is preserved.
      */
     private fun buildPrompt(query: String): String {
         return "$query anime. " +
-            "[Respond with only the English anime title, nothing else. " +
+            "[Identify the ONE anime this refers to and reply with ONLY its English title " +
+            "wrapped inside these exact brackets: [{[Title]}] — nothing else inside the brackets. " +
             "If the query is already an anime title or close to one, return that title with spelling corrected. " +
             "If the query describes an anime, give the title of the anime being described. " +
             "If the query has spelling mistakes, correct them and give the proper title. " +
             "If the query mentions a genre or theme, give one popular anime from that genre. " +
-            "If the query is vague, give the most likely anime match. " +
-            "Always respond with exactly one anime title, no explanations, no lists.]"
+            "If the query is vague, give the most likely anime match.]"
     }
 
     /**
@@ -503,20 +550,27 @@ class SmartSearch(
     }
 
     /**
-     * ★ session 57: Extract an anime title from Google AI's rendered text.
+     * ★ session 57/58: Extract an anime title from Google AI's rendered text.
      *
      * Pipeline (designed against a live stealth-browser capture of Google's AI Mode):
-     * 0. Preprocess — strip markdown emphasis, cut Google footers, drop UI-chrome and
+     * 0. **S0 bracket strategy (★ session 58)** — `[{[Title]}]` first, on the raw text.
+     * 1. Preprocess — strip markdown emphasis, cut Google footers, drop UI-chrome and
      *    query-echo lines (echo lines are only dropped near the top of the page so real
      *    answers that repeat the query words survive).
-     * 1. Candidate regions — prefer the text AFTER an AI-answer marker
+     * 2. Candidate regions — prefer the text AFTER an AI-answer marker
      *    ("AI Mode reply for", "AI Overview", "AI Mode response", "Search Results").
-     * 2. Per region, run pattern strategies strong → weak.
+     * 3. Per region, run pattern strategies strong → weak (S1–S7).
      *
      * @param pageText the rendered page text
      * @param query the user's phrase-stripped query (used to detect the query echo)
      */
     private fun extractAnimeTitle(pageText: String, query: String): String? {
+        // ── S0. Bracket convention (★ session 58, strongest signal) ──
+        extractBracketTitle(pageText)?.let {
+            AnikotoLog.d("SmartSearch: S0 bracket match: \"$it\"")
+            return it
+        }
+
         // ── 0. Preprocess ──
         var text = pageText
             .replace(Regex("\\*{1,3}([^*\\n]+)\\*{1,3}"), "$1")
@@ -574,11 +628,14 @@ class SmartSearch(
         return null
     }
 
-    /** Run all pattern strategies over one text region, strongest signal first. */
+    /** Run all pattern strategies over one text region, strongest signal first.
+     *  ★ session 58: S1/S2 caps widened 80 → 100 and terminated at "(" so the
+     *  parenthetical "(Japanese title: …)" no longer inflates the match past the cap
+     *  (the user's reported "no anime title could be read" failure). S2c and S6b added. */
     private fun extractFromRegion(region: String): String? {
         // ── S1 — "is titled / is called / is named / is known as X" (strong) ──
         val titledPattern = Regex(
-            """(?:is\s+titled|is\s+called|is\s+named|is\s+known\s+as)\s+([A-Z][^\n.!?]{1,80}?)(?:\s*[.\n!?]|$)"""
+            """(?:is\s+titled|is\s+called|is\s+named|is\s+known\s+as)\s+([A-Z][^\n.!?(]{1,100}?)(?:\s*[.\n!?]|\(|$)"""
         )
         for (match in titledPattern.findAll(region)) {
             val title = stripParenthetical(match.groupValues[1].trim())
@@ -586,10 +643,23 @@ class SmartSearch(
         }
 
         // ── S2 — "the anime you're describing is X" / "looking for is X" (strong) ──
+        // ★ session 58: group stops at "(" — "…looking for is Alya Sometimes Hides Her
+        // Feelings in Russian (Japanese title: Tokidoki Bosotto Russia-go de Dereru
+        // Tonari no Alya-san)." now yields "Alya Sometimes Hides Her Feelings in Russian"
+        // (the old 80-char cap over the WHOLE match including the parenthetical failed).
         val describingPattern = Regex(
-            """(?:describing|described|looking\s+for|thinking\s+of|referring\s+to|asking\s+about)\s+is\s+([A-Z][^\n.!?]{1,80}?)(?:\s*[.\n!?]|$)"""
+            """(?:describing|described|looking\s+for|thinking\s+of|referring\s+to|asking\s+about)\s+is\s+([A-Z][^\n.!?(]{1,100}?)(?:\s*[.\n!?]|\(|$)"""
         )
         for (match in describingPattern.findAll(region)) {
+            val title = stripParenthetical(match.groupValues[1].trim())
+            if (title.split(Regex("\\s+")).filter { it.isNotEmpty() }.size in 1..12) return title
+        }
+
+        // ── S2c — "the anime/series/show is X" (★ session 58) ──
+        val animeIsPattern = Regex(
+            """\b(?:anime|series|show)\s+is\s+([A-Z][^\n.!?(]{2,100}?)(?:\s*[.\n!?]|\(|$)"""
+        )
+        for (match in animeIsPattern.findAll(region)) {
             val title = stripParenthetical(match.groupValues[1].trim())
             if (title.split(Regex("\\s+")).filter { it.isNotEmpty() }.size in 1..12) return title
         }
@@ -639,7 +709,21 @@ class SmartSearch(
             }
         }
 
+        // ── S6b — "Japanese title: X" parenthetical (★ session 58, late fallback) ──
+        // e.g. "The anime you are looking for is X (Japanese title: Tokidoki Bosotto
+        // Russia-go de Dereru Tonari no Alya-san)." — if everything above failed, the
+        // romaji title is still a far better search term than nothing.
+        val japaneseTitlePattern = Regex(
+            """Japanese\s+title\s*:?:?\s*([A-Za-z0-9][^\n)\].!?"]{1,100}?)(?:\s*[)\]\n]|\s*[.!?]|$)"""
+        )
+        for (match in japaneseTitlePattern.findAll(region)) {
+            val title = match.groupValues[1].trim().trimEnd('.', ' ')
+            if (title.split(Regex("\\s+")).filter { it.isNotEmpty() }.size in 1..12) return title
+        }
+
         // ── S7 — title-like line scan (weakest) ──
+        // ★ session 58: parenthetical stripped BEFORE length checks, raw line cap
+        // raised 90 → 120 (answers like "… is Alya … (Japanese title: …)." are long).
         val skipStart = setOf(
             "ai", "all", "images", "videos", "news", "shopping", "maps", "books",
             "flights", "finance", "search", "results", "mode", "settings", "history",
@@ -650,18 +734,19 @@ class SmartSearch(
         )
         for (line in region.lines()) {
             val trimmed = line.trim()
-            if (trimmed.length < 5 || trimmed.length > 90) continue
+            if (trimmed.length < 5 || trimmed.length > 120) continue
             if (trimmed.endsWith("?") || trimmed.endsWith("!") || trimmed.endsWith(":")) continue
+            val noParen = stripParenthetical(trimmed)
             val lower = trimmed.lowercase()
             if (lower.contains(" is ") || lower.contains(" are ") || lower.contains(" was ")) continue
             if ("respond with only" in lower || "anime." in lower) continue
-            val words = trimmed.split(Regex("\\s+"))
+            val words = noParen.split(Regex("\\s+"))
             if (words.size < 2 || words.size > 12) continue
             val firstWord = words[0].trimStart('"', '\'', '\u201C', '\u201D').lowercase()
             if (firstWord in skipStart) continue
             val capitalized = words.count { it.firstOrNull()?.isUpperCase() == true }
             if (capitalized * 2 < words.size) continue
-            val title = stripParenthetical(trimmed)
+            val title = noParen
             val wc = title.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
             if (wc in 2..12) {
                 AnikotoLog.d("SmartSearch: line-scan match: \"$trimmed\" → \"$title\"")

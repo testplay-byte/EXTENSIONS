@@ -189,12 +189,13 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     // ★ session 51: AI-powered search. Logic is in the smartsearch/ package.
     // This section just wires it into the search flow and handles toast notifications.
 
-    /** ★ session 51: Show a toast notification to the user (on main thread). */
-    private suspend fun showToast(message: String) {
+    /** ★ session 51: Show a toast notification to the user (on main thread).
+     *  ★ session 58: optional short duration for the non-critical "copied" confirmation. */
+    private suspend fun showToast(message: String, duration: Int = Toast.LENGTH_LONG) {
         try {
             val app = Injekt.get<Application>()
             withContext(Dispatchers.Main) {
-                Toast.makeText(app, message, Toast.LENGTH_LONG).show()
+                Toast.makeText(app, message, duration).show()
             }
         } catch (e: Exception) {
             AnikotoLog.e("SmartSearch: failed to show toast", e)
@@ -202,9 +203,9 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /**
-     * ★ session 57: Copy debug text to the clipboard (runs on the main thread).
-     * Used to hand the raw engine response to the user when smart search fails,
-     * so the failure can be diagnosed by simply pasting the clipboard contents.
+     * ★ session 57/58: Copy debug/feedback text to the clipboard (runs on the main thread).
+     * ★ session 58: ALL clipboard copying is now behind the "Copy response" toggle
+     * (Settings → Smart Search, default OFF) — see the getSearchAnime call-sites.
      * @return true if the text was placed on the clipboard.
      */
     private suspend fun copyToClipboard(text: String): Boolean = try {
@@ -264,18 +265,34 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             if (resolved !is SmartSearch.ResolveResult.Success) {
                 val failure = resolved as SmartSearch.ResolveResult.Failure
                 AnikotoLog.w("SmartSearch: resolution FAILED — ${failure.userMessage}")
-                // ★ session 57: copy the raw engine response to the clipboard so failures
-                // can be debugged anywhere by pasting it (user request for testing).
+                // ★ session 58: "Copy response" toggle (default OFF). When enabled, copy
+                // the searched query + error + raw engine response so failures can be
+                // debugged anywhere by pasting the clipboard contents.
                 var message = "Smart search failed: ${failure.userMessage}"
-                failure.detail?.takeIf { it.isNotBlank() }?.let { raw ->
-                    if (copyToClipboard(raw.take(20_000))) {
-                        message += " (raw response copied to clipboard)"
+                if (settings.copyResponse) {
+                    val debug = buildString {
+                        append("Query: ").append(strippedQuery).append('\n')
+                        append("Error: ").append(failure.userMessage).append('\n')
+                        failure.detail?.takeIf { it.isNotBlank() }?.let {
+                            append("\n--- raw engine response ---\n").append(it.take(20_000))
+                        }
+                    }
+                    if (copyToClipboard(debug)) {
+                        message += " (response copied to clipboard)"
                     }
                 }
                 showToast(message)
                 return super.getSearchAnime(page, query, filters)
             }
             smartSearch.cacheTitle(strippedQuery, resolved.title)
+            // ★ session 58: "Copy response" — auto-copy the searched query + the resolved
+            // title (user request). Runs only on a fresh resolution, not on page-2+ cache hits.
+            if (settings.copyResponse) {
+                val payload = "Query: $strippedQuery\nTitle: ${resolved.title}"
+                if (copyToClipboard(payload)) {
+                    showToast("Smart search: query and result copied to clipboard", Toast.LENGTH_SHORT)
+                }
+            }
             resolved.title
         }
 

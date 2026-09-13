@@ -27,11 +27,12 @@ import eu.kanade.tachiyomi.animeextension.en.anikoto.smartsearch.SmartSearch
  * 1. **Playback** — domain, quality, audio, buffer, server
  * 2. **Servers** — Kiwi-Stream toggle
  * 3. **Episode metadata** — thumbnails, titles, descriptions
- * 4. **Smart Search** — AI-powered search toggle + activation phrase (session 51)
+ * 4. **Smart Search** — AI search toggle, activation phrase, engine/model/key, "Copy response" (session 51/56/58)
+ * 5. **Details** — Smart Search usage instructions (session 58)
  *
  * ## Architecture
  * - [AnikotoSettings] wraps a [SharedPreferences] instance and exposes typed getters.
- * - [setupPreferenceScreen] builds the 3-category settings UI.
+ * - [setupPreferenceScreen] builds the 5-category settings UI.
  * - The main Anikoto.kt class creates an instance and delegates to it.
  *
  * @property prefs The SharedPreferences instance (keyed by source ID)
@@ -108,7 +109,7 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
         get() = prefs.getString(PREF_GEMINI_KEY_KEY, PREF_GEMINI_KEY_DEFAULT)
             ?: PREF_GEMINI_KEY_DEFAULT
 
-    /** ★ session 57: The Gemini model id (e.g. "gemini-3.5-flash-lite").
+    /** ★ session 57: The Gemini model id (e.g. "gemini-3.1-flash-lite").
      *  "custom" resolves to the user-typed model id (falls back to the default). */
     val geminiModel: String
         get() {
@@ -122,16 +123,22 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
             }
         }
 
+    /** ★ session 58: whether smart-search results (query + title, or error + raw
+     *  response) are automatically copied to the clipboard. Default: OFF. */
+    val copyResponse: Boolean
+        get() = prefs.getBoolean(PREF_SMART_COPY_RESPONSE_KEY, PREF_SMART_COPY_RESPONSE_DEFAULT)
+
     // ── Settings UI ────────────────────────────────────────────────────
 
     /**
-     * Build the settings preference screen with 4 categories.
+     * Build the settings preference screen with 5 categories.
      *
      * Categories:
      * 1. **Playback** — quality, audio, buffer, server (all with "Currently: %s")
      * 2. **Servers** — Kiwi-Stream toggle
      * 3. **Episode metadata** — thumbnails, titles, descriptions toggles
-     * 4. **Smart Search** — AI-powered search toggle + activation phrase (session 51)
+     * 4. **Smart Search** — AI search toggle, phrase, engine, Gemini group, Copy response
+     * 5. **Details** — usage instructions (session 58, exact copy per user request)
      *
      * All dropdowns show "Currently: %s" so the user can see the current value.
      */
@@ -295,14 +302,16 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
                 }
             }.also(::addPreference)
 
-            // ★ session 57: model picker — latest Gemini models + custom id option
+            // ★ session 58: model picker — Gemini 3.1 Flash Lite on TOP and selected by
+            // default; no "(Recommended)" label anywhere (user request). Order = the list
+            // the user sees in the dialog.
             val modelPref = ListPreference(context).apply {
                 key = PREF_GEMINI_MODEL_KEY
                 title = "Gemini model"
                 entries = arrayOf(
-                    "Gemini 3.5 Flash Light (Recommended)",
+                    "Gemini 3.1 Flash Lite",
+                    "Gemini 3.5 Flash Lite",
                     "Gemini 3.8 Flash",
-                    "Gemini 3.1 Flash Light",
                     "Custom model ID",
                 )
                 entryValues = GEMINI_MODELS + arrayOf("custom")
@@ -344,36 +353,29 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
                 }
             }.also(::addPreference)
 
+            // ★ session 58: "Copy response" — auto-copy the searched query + the resolved
+            // title (or error + raw response) to the clipboard. Default OFF. Sits at the
+            // very bottom of the Smart Search section (user request).
+            SwitchPreferenceCompat(context).apply {
+                key = PREF_SMART_COPY_RESPONSE_KEY
+                title = "Copy response"
+                setDefaultValue(PREF_SMART_COPY_RESPONSE_DEFAULT)
+            }.also(::addPreference)
+
             EditTextPreference(context).apply {
                 key = PREF_SMART_SEARCH_PHRASE_KEY
                 title = "Activation phrase"
                 dialogTitle = "Activation phrase"
-                dialogMessage = "Type this at the start of your search to trigger AI.\n" +
-                    "Case-insensitive. Must be followed by a space.\n" +
-                    "Leave empty to use AI for all searches."
                 setDefaultValue(PREF_SMART_SEARCH_PHRASE_DEFAULT)
                 // ★ session 51: Custom summary that shows the actual phrase (not "%s")
                 updatePhraseSummary(this, prefs.getString(PREF_SMART_SEARCH_PHRASE_KEY, PREF_SMART_SEARCH_PHRASE_DEFAULT) ?: PREF_SMART_SEARCH_PHRASE_DEFAULT)
-                // Update summary when user changes the phrase
+                // Update summary when user changes the phrase (also refreshes the Details
+                // section below, which shows the live phrase + examples)
                 onPreferenceChangeListener = androidx.preference.Preference.OnPreferenceChangeListener { _, newValue ->
                     updatePhraseSummary(this, newValue as? String ?: "")
+                    smartDetailsPref?.let { updateDetailsSummary(it, newValue as? String) }
                     true
                 }
-            }.also(::addPreference)
-
-            // ★ session 57: usage details (model details removed per user request)
-            Preference(context).apply {
-                title = "How to use"
-                summary = "1. Turn Smart Search on.\n" +
-                    "2. In the extension search bar, type the activation phrase (? by default) " +
-                    "followed by a description or a misspelled title — e.g. \"? atack on titen\" " +
-                    "or \"? the anime where a boy becomes a titan\".\n" +
-                    "3. The AI resolves it to one title and normal search takes over.\n\n" +
-                    "Engines: Google Gemini API (recommended — paste a free key from " +
-                    "aistudio.google.com/apikey) or Google AI Search (legacy, no key needed).\n\n" +
-                    "If a search fails, the toast tells you the exact reason and the raw " +
-                    "engine response is copied to the clipboard for debugging."
-                isSelectable = false
             }.also(::addPreference)
 
             // ★ session 57: conditional visibility — Google AI Search needs none of the
@@ -401,9 +403,49 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
                 true
             }
         }
+
+        // ── Category 5: Details (★ session 58 — exact copy per user request) ───
+        PreferenceCategory(screen.context).apply {
+            title = "Details"
+            screen.addPreference(this)
+
+            Preference(context).apply {
+                key = "pref_smart_details"
+                isSelectable = false
+                updateDetailsSummary(this)
+                smartDetailsPref = this
+            }.also(::addPreference)
+        }
     }
 
     // ── Smart Search helpers (session 51/56) ────────────────────────────
+
+    /** ★ session 58: reference to the Details preference so the phrase editor can
+     *  refresh its live text. Assigned when the Details category is built. */
+    private var smartDetailsPref: Preference? = null
+
+    /**
+     * ★ session 58: the Details section — exact copy per the user's request, with the
+     * CURRENT activation phrase substituted dynamically (both in "Your phrase" and in
+     * the examples).
+     */
+    private fun updateDetailsSummary(pref: Preference, overridePhrase: String? = null) {
+        val phrase = (overridePhrase
+            ?: prefs.getString(PREF_SMART_SEARCH_PHRASE_KEY, PREF_SMART_SEARCH_PHRASE_DEFAULT)
+            ?: PREF_SMART_SEARCH_PHRASE_DEFAULT).trim()
+        val shown = phrase.ifEmpty { "(empty)" }
+        val prefix = if (phrase.isEmpty()) "" else "$phrase "
+        pref.title = "Details"
+        pref.summary = "Type your activation phrase at the start of your search to trigger AI.\n" +
+            "Leave empty to use AI for all searches.\n" +
+            "Case-insensitive. Must be followed by a space.\n\n" +
+            "Your phrase: \"$shown\"\n\n" +
+            "Examples:\n" +
+            "${prefix}the anime with a russian girl\n" +
+            "${prefix}narutp\n" +
+            "${prefix}anime about a spy\n\n" +
+            "Note: ~5-8s latency per AI search."
+    }
 
     /** ★ session 57: SHORT masked summary for the Gemini API key preference.
      *  @param overrideValue when non-null, shown instead of the stored value (the change
@@ -480,24 +522,33 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
 
         // Smart Search (session 51/56)
         internal const val PREF_SMART_SEARCH_KEY = "pref_smart_search"
-        internal const val PREF_SMART_SEARCH_DEFAULT = false // ★ OFF by default — user must opt in
+        // ★ session 58: ON by default (user request — "by default the smart search will be turned on")
+        internal const val PREF_SMART_SEARCH_DEFAULT = true
         internal const val PREF_SMART_SEARCH_PHRASE_KEY = "pref_smart_search_phrase"
         internal const val PREF_SMART_SEARCH_PHRASE_DEFAULT = "?" // ★ default phrase is question mark
         // ★ session 56/57: engine + Gemini settings
         internal const val PREF_SMART_ENGINE_KEY = "pref_smart_engine"
-        internal const val PREF_SMART_ENGINE_DEFAULT = "gemini" // ★ session 57: gemini is the recommended engine
+        // ★ session 58: Google AI Search is the default method (user request — no key needed)
+        internal const val PREF_SMART_ENGINE_DEFAULT = "google"
         internal const val PREF_GEMINI_KEY_KEY = "pref_gemini_key"
         internal const val PREF_GEMINI_KEY_DEFAULT = ""
         internal const val PREF_GEMINI_MODEL_KEY = "pref_gemini_model"
-        // ★ session 57: recommended default = Gemini 3.5 Flash-Lite (user request)
-        internal const val PREF_GEMINI_MODEL_DEFAULT = "gemini-3.5-flash-lite"
+        // ★ session 58: default = Gemini 3.1 Flash Lite — top of the list, selected by default,
+        // NO "Recommended" label shown (user request)
+        internal const val PREF_GEMINI_MODEL_DEFAULT = "gemini-3.1-flash-lite"
         internal const val PREF_GEMINI_CUSTOM_MODEL_KEY = "pref_gemini_custom_model"
         internal const val PREF_GEMINI_CUSTOM_MODEL_DEFAULT = ""
-        /** ★ session 57: selectable model ids (verified against Google's Gemini model docs). */
+        /** ★ session 58: selectable model ids — ORDER MATTERS (top entry = the default).
+         *  All three verified against the live v1beta API (2026-09-13): a bogus model id
+         *  404s while these three pass model lookup and reach request validation. */
         internal val GEMINI_MODELS = arrayOf(
+            "gemini-3.1-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.8-flash",
-            "gemini-3.1-flash-lite",
         )
+
+        // ★ session 58: "Copy response" — auto-copy the searched query + result (default OFF)
+        internal const val PREF_SMART_COPY_RESPONSE_KEY = "pref_smart_copy_response"
+        internal const val PREF_SMART_COPY_RESPONSE_DEFAULT = false
     }
 }

@@ -310,29 +310,58 @@ class AnimeKhor : AnimeHttpSource(), ConfigurableAnimeSource {
     // decode every mirror option, then extract each hoster INDEPENDENTLY — one broken/dead
     // hoster never removes the others (dead embeds are common on this site, e.g. the
     // "DPlayer → Video Not Available" options).
+    //
+    // Modern pipeline: getHosterList() → one Hoster per mirror (only mirrors that actually
+    // resolved to videos are included). Legacy pipeline: getVideoList(episode) flattens it.
 
     override fun hosterListParse(response: Response): List<eu.kanade.tachiyomi.animesource.model.Hoster> = emptyList()
     override fun videoListParse(response: Response): List<Video> = emptyList()
     override fun seasonListParse(response: Response): List<SAnime> = emptyList()
 
     /**
-     * LEGACY flat pipeline (ext-lib-16 forks that haven't adopted the hoster pipeline call
-     * this). Same tolerant extraction as the modern path, flattened to a plain video list.
+     * Modern (ext-lib-16) pipeline: one [Hoster] per episode-page mirror that resolved.
      */
-    override suspend fun getVideoList(episode: SEpisode): List<Video> =
-        runCatching { extractEpisodeVideos(episode) }.getOrDefault(emptyList())
+    override suspend fun getHosterList(episode: SEpisode): List<eu.kanade.tachiyomi.animesource.model.Hoster> =
+        runCatching { extractEpisodeHosters(episode) }.getOrDefault(emptyList())
 
-    private suspend fun extractEpisodeVideos(episode: SEpisode): List<Video> {
+    /**
+     * LEGACY flat pipeline (forks without the hoster pipeline call this) — flattens the
+     * hoster list. Never throws.
+     */
+    override suspend fun getVideoList(episode: SEpisode): List<Video> = runCatching {
+        getHosterList(episode).flatMap { it.videoList ?: emptyList() }
+    }.getOrDefault(emptyList())
+
+    private suspend fun extractEpisodeHosters(episode: SEpisode): List<eu.kanade.tachiyomi.animesource.model.Hoster> {
         val response = client.newCall(GET(baseUrl + episode.url, apiHeadersBuilder().build())).execute()
         response.use { resp ->
             val document = resp.asJsoup()
-            val embeds = document.select("select.mirror > option[data-index], ul.mirror a[data-em]")
-                .mapNotNull { it.toEmbedUrl() }
-            if (embeds.isEmpty()) return emptyList()
+            val mirrors = document.select("select.mirror > option[data-index], ul.mirror a[data-em]")
+                .mapNotNull { el -> el.toEmbedUrl()?.let { url -> el.mirrorLabel() to url } }
+            if (mirrors.isEmpty()) return emptyList()
 
-            return videosFromEmbeds(embeds, episode)
+            val hosters = mirrors.parallelCatchingFlatMapBlocking { (label, embed) ->
+                val videos = extractFromEmbed(embed)
+                if (videos.isEmpty()) {
+                    emptyList()
+                } else {
+                    listOf(
+                        eu.kanade.tachiyomi.animesource.model.Hoster(
+                            hosterUrl = embed,
+                            hosterName = label,
+                            videoList = videos,
+                        ),
+                    )
+                }
+            }
+            return hosters
         }
     }
+
+    private fun Element.mirrorLabel(): String = text().trim()
+        .removePrefix("\n").trim()
+        .takeIf(String::isNotEmpty)
+        ?: "Mirror"
 
     /**
      * Decodes a mirror element into an absolute embed URL.
@@ -367,13 +396,6 @@ class AnimeKhor : AnimeHttpSource(), ConfigurableAnimeSource {
                     else -> null
                 }
             }
-    }
-
-    private suspend fun videosFromEmbeds(embeds: List<String>, episode: SEpisode): List<Video> {
-        val results = embeds.parallelCatchingFlatMapBlocking { embed ->
-            extractFromEmbed(embed)
-        }
-        return sortVideos(results)
     }
 
     private suspend fun extractFromEmbed(url: String): List<Video> {
@@ -454,8 +476,9 @@ class AnimeKhor : AnimeHttpSource(), ConfigurableAnimeSource {
         get() = preferences.getString(PREF_SERVER_KEY, PREF_SERVER_DEFAULT) ?: PREF_SERVER_DEFAULT
 
     // =============================== Sorting ==============================
+    // Called by the app per hoster video list (modern pipeline) and on the legacy flat list.
 
-    private fun sortVideos(videos: List<Video>): List<Video> = videos.sortedWith(
+    override fun List<Video>.sortVideos(): List<Video> = sortedWith(
         compareByDescending<Video> { it.videoTitle.contains(preferredServer, ignoreCase = true) }
             .thenByDescending { it.videoTitle.contains(preferredQuality, ignoreCase = true) }
             .thenByDescending { it.resolution ?: 0 },

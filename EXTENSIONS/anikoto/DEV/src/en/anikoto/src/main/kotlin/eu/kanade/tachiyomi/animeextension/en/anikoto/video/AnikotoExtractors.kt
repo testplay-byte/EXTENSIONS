@@ -17,6 +17,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.URLEncoder
 import java.util.regex.Pattern
 
 /**
@@ -32,6 +33,16 @@ import java.util.regex.Pattern
  *   with AES-256-CBC decryption of the "enc" blob via [MegaPlayDecrypt]. See
  *   MEMORY/sites/getsources-migration-and-id-analysis.md §3.
  *   ★ session 27: per-stream Referer stored in AudioStream for the proxy to use.
+ *   ★ session 54 (v16.11): megaplay now serves the master m3u8 from ROTATING CDN hosts
+ *   (fetch.nexabloom.top, xdw5v.qeltrix.top, megap.shiora.site/.top, ...). The DEFAULT
+ *   CDN's master m3u8 rejects non-browser TLS (openresty 403 to OkHttp — Chrome passes;
+ *   variants + subtitles on the same host DO work with a megaplay Referer). The site's
+ *   own player picks a CDN via the `s=` query param, which lib/newclient.min.js appends
+ *   to every getSources call (HD-1's iframe URL carries ?s=tcdn → megap.shiora.*, which
+ *   is OkHttp-friendly). We mirror that: try each `s` candidate × [getSourcesNew,
+ *   getSources] and VERIFY the master m3u8 is actually fetchable before accepting —
+ *   self-correcting against future CDN rotation. WebView (Chrome TLS) is the last-resort
+ *   master fetcher.
  * - [resolveKiwi] (Flow B): Kiwi-Stream
  *   iframe URL#<base64-fragment> → decode → direct m3u8 → variants → segments
  */
@@ -42,53 +53,104 @@ class AnikotoExtractors(
 ) {
     // ── Flow A: VidTube (VidPlay-1, HD-1, Vidstream-2) ──────────────────────
 
-    /** ★ session 52: parsed getSources/getSourcesNew result — master m3u8 + subtitle tracks. */
-    private data class SourcesData(val masterM3u8: String, val tracks: List<VidTubeTrack>)
+    /** ★ session 52: parsed getSources/getSourcesNew result — master m3u8 + subtitle tracks.
+     *  ★ session 54: [masterText] carries the ALREADY-FETCHED master playlist text
+     *  (verified fetchable during [fetchSourcesData]) so resolveVidTube doesn't re-fetch it. */
+    private data class SourcesData(val masterM3u8: String, val tracks: List<VidTubeTrack>, val masterText: String? = null)
 
     /**
-     * ★ session 52: Resolve the master m3u8 + subtitle tracks for a data-id.
+     * ★ session 52/54: Resolve the master m3u8 + subtitle tracks for a data-id.
      *
-     * megaplay.buzz (HD-1, Vidstream-2) now ENCRYPTS its getSources response ("enc"
-     * AES-256-CBC blob — plaintext sources.file is gone; that is what broke playback on
-     * 2026-09-09). Strategy, both endpoints verified live:
-     * 1. `getSourcesNew?id=X&type=Y` — plaintext sources.file AGAIN on ALL hosts
-     *    (megaplay, vidtube, vidwish — the player's own newclient.min.js rewrites
-     *    getSources → getSourcesNew exactly like this).
-     * 2. `getSources?id=X&type=Y` — fallback: still plaintext on vidtube/vidwish, but on
-     *    megaplay returns the "enc" blob → decrypted via [MegaPlayDecrypt]
-     *    (AES-256-CBC, key "i?LMTAx0Q6,:}50U" zero-padded to 32 bytes, IV "W0;27ToaUpl_P%'c"
-     *    — constants extracted from megaplay's lib/newclient.min.js).
+     * megaplay.buzz (HD-1, Vidstream-2) ENCRYPTS its getSources/getSourcesNew responses
+     * ("enc" AES-256-CBC blob — decrypted via [MegaPlayDecrypt], constants from
+     * megaplay's lib/newclient.min.js).
      *
-     * The returned m3u8 host rotates per response (megap.shiora.site, megap.mikora.top,
-     * s1.akirax.buzz) — all verified WAF-free as of session 52.
+     * ★ session 54: the DECRYPTED master m3u8 host now ROTATES per response
+     * (fetch.nexabloom.top, xdw5v.qeltrix.top, megap.shiora.site/.top, ...). The default
+     * CDN's MASTER m3u8 rejects non-browser TLS (openresty 403 to OkHttp — verified live;
+     * Chrome passes, and the same host's variants + subtitles DO work with a Referer).
+     * The site's player selects the CDN via the `s=` query param, which its
+     * newclient.min.js appends to every getSources call: `?s=tcdn` → megap.shiora.*
+     * (OkHttp-friendly, used by the site's own HD-1 server).
+     *
+     * Strategy: for each `s` candidate ([sParam] from the iframe URL, then "tcdn", then
+     * none) × [getSourcesNew, getSources]: fetch, parse (plaintext OR enc), then VERIFY
+     * the master m3u8 is actually fetchable — the first verified combo wins. WebView
+     * (Chrome TLS) is the last-resort master fetcher. This self-corrects against future
+     * CDN rotation without hardcoding hosts.
      */
-    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String): SourcesData? {
-        // Attempt 1: getSourcesNew (plaintext on all hosts — verified live session 52)
-        try {
-            val url = "https://$host/stream/getSourcesNew?id=$dataId&type=$audioType"
-            AnikotoLog.d("resolveVidTube: [2/5] GET getSourcesNew: ${AnikotoLog.trunc(url, 80)}")
-            val body = fetchString(url, vidtubeApiHeaders(host))
-            parseSourcesBody(body)?.let { return it }
-            AnikotoLog.w("resolveVidTube: getSourcesNew response had no usable file (host=$host)")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AnikotoLog.w("resolveVidTube: getSourcesNew FAILED on $host — ${e.message?.take(80)}")
-        }
-
-        // Attempt 2: getSources (legacy — plaintext on vidtube/vidwish, enc-encrypted on megaplay)
-        try {
-            val url = "https://$host/stream/getSources?id=$dataId&type=$audioType"
-            AnikotoLog.d("resolveVidTube: [2/5] GET getSources: ${AnikotoLog.trunc(url, 80)}")
-            val body = fetchString(url, vidtubeApiHeaders(host))
-            parseSourcesBody(body)?.let { return it }
-            AnikotoLog.w("resolveVidTube: getSources response had no usable file (host=$host)")
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AnikotoLog.w("resolveVidTube: getSources FAILED on $host — ${e.message?.take(80)}")
+    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String, sParam: String?): SourcesData? {
+        val sCandidates = buildList {
+            if (!sParam.isNullOrBlank()) add(sParam)
+            add("tcdn") // HD-1's CDN — currently megap.shiora.*, verified OkHttp-friendly
+            add("")     // default CDN — works in browsers; kept for future-proofing
+        }.distinct()
+        for (s in sCandidates) {
+            val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
+            // Attempt 1: getSourcesNew (the player's newclient.min.js rewrites
+            // getSources → getSourcesNew exactly like this)
+            fetchAndVerifySources(host, "getSourcesNew", dataId, audioType, sSuffix)?.let { return it }
+            // Attempt 2: getSources (legacy — enc-encrypted on megaplay, decrypted via
+            // [MegaPlayDecrypt]; still plaintext on vidtube/vidwish)
+            fetchAndVerifySources(host, "getSources", dataId, audioType, sSuffix)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * ★ session 54: fetch one getSources/getSourcesNew variant, parse it (plaintext or
+     * enc blob), then verify the master m3u8 is fetchable. Returns the [SourcesData]
+     * with the pre-fetched master text, or null (caller tries the next candidate).
+     */
+    private suspend fun fetchAndVerifySources(
+        host: String,
+        endpoint: String,
+        dataId: String,
+        audioType: String,
+        sSuffix: String,
+    ): SourcesData? {
+        try {
+            val url = "https://$host/stream/$endpoint?id=$dataId&type=$audioType$sSuffix"
+            AnikotoLog.d("resolveVidTube: [2/5] GET $endpoint$sSuffix: ${AnikotoLog.trunc(url, 90)}")
+            val body = fetchString(url, vidtubeApiHeaders(host))
+            val parsed = parseSourcesBody(body) ?: run {
+                AnikotoLog.w("resolveVidTube: $endpoint response had no usable file (host=$host$sSuffix)")
+                return null
+            }
+            // ★ session 54: verify the master m3u8 is fetchable — the default CDN's master
+            // 403s to non-browser TLS. If it fails, fall through to the next s candidate.
+            val masterText = try {
+                fetchString(parsed.masterM3u8, segHeaders(host))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AnikotoLog.w("resolveVidTube: master m3u8 NOT fetchable via OkHttp ($endpoint$sSuffix) — ${e.message?.take(60)}")
+                null
+            }
+            if (masterText != null && masterText.startsWith("#EXTM3U")) {
+                return parsed.copy(masterText = masterText)
+            }
+            // Last resort: WebView (Chrome TLS) can fetch masters that block OkHttp's TLS.
+            if (masterText == null && webViewFetcher != null) {
+                try {
+                    val webText = webViewFetcher.fetchText(parsed.masterM3u8)
+                    if (webText.startsWith("#EXTM3U")) {
+                        AnikotoLog.i("resolveVidTube: master fetched via WebView fallback ($endpoint$sSuffix)")
+                        return parsed.copy(masterText = webText)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AnikotoLog.w("resolveVidTube: WebView master fetch failed — ${e.message?.take(60)}")
+                }
+            }
+            return null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AnikotoLog.w("resolveVidTube: $endpoint FAILED (host=$host$sSuffix) — ${e.message?.take(80)}")
+            return null
+        }
     }
 
     /**
@@ -136,29 +198,34 @@ class AnikotoExtractors(
 
             // Step 2: Fetch sources m3u8 + tracks.
             // ★ session 52: megaplay.buzz (HD-1, Vidstream-2) ENCRYPTED its getSources response
-            // ("enc" AES-256-CBC blob — sources.file is gone). That broke playback: every
-            // megaplay server logged `sources.file='null'` and returned null.
-            // New strategy (both endpoints verified live 2026-09-09):
-            //   1. getSourcesNew?id=X&type=Y — plaintext sources.file AGAIN on ALL hosts
-            //      (megaplay + vidtube + vidwish; the player's own newclient.min.js rewrites
-            //      getSources → getSourcesNew the same way).
-            //   2. getSources?id=X&type=Y — fallback: plaintext on vidtube/vidwish, but on
-            //      megaplay returns the "enc" blob → decrypt with AES-256-CBC
-            //      (key "i?LMTAx0Q6,:}50U" zero-padded to 32, IV "W0;27ToaUpl_P%'c" —
-            //      extracted from megaplay's lib/newclient.min.js). See MegaPlayDecrypt.
-            // The master m3u8 host now ROTATES per response (megap.shiora.site,
-            // megap.mikora.top, s1.akirax.buzz) — all currently WAF-free.
-            val sourcesData = fetchSourcesData(host, dataId, audioType)
+            // ("enc" AES-256-CBC blob — sources.file is gone) — decrypted by MegaPlayDecrypt.
+            // ★ session 54: the DECRYPTED master m3u8 now lives on ROTATING CDN hosts whose
+            // DEFAULT member 403s non-browser TLS at the master (openresty; Chrome passes).
+            // The site's player appends the page's `s=` CDN-selector to every getSources call
+            // (newclient.min.js) — HD-1 ships ?s=tcdn → megap.shiora.*, OkHttp-friendly.
+            // We mirror that: candidates = [iframe's own s, "tcdn", none], each × [New, legacy],
+            // accepting the first combo whose master m3u8 VERIFIES as fetchable (WebView as
+            // last resort). See fetchSourcesData for the full rationale.
+            val sParam = iframeUrl.substringAfter('?', "")
+                .substringBefore('#')
+                .split('&')
+                .firstOrNull { it.startsWith("s=") }
+                ?.substringAfter('=')
+                ?.takeIf { it.isNotBlank() }
+            val sourcesData = fetchSourcesData(host, dataId, audioType, sParam)
             if (sourcesData == null) {
-                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host)")
+                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host, sParam=$sParam)")
                 return null
             }
             val masterM3u8 = sourcesData.masterM3u8
             AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)}")
             AnikotoLog.i("resolveVidTube: subs=${sourcesData.tracks.size} track(s)")
             // Step 3: parse master m3u8 → variants
-            AnikotoLog.d("resolveVidTube: [3/5] fetching master m3u8")
-            val masterText = fetchString(masterM3u8, segHeaders(host))
+            // ★ session 54: masterText was ALREADY fetched + verified inside fetchSourcesData
+            // (that's how the working CDN was chosen) — reuse it instead of re-fetching.
+            AnikotoLog.d("resolveVidTube: [3/5] using verified master m3u8 text")
+            val masterText = sourcesData.masterText
+                ?: fetchString(masterM3u8, segHeaders(host)) // defensive: should never happen
             if (!masterText.startsWith("#EXTM3U")) {
                 AnikotoLog.e("resolveVidTube: master is not m3u8 (starts with ${masterText.take(40)})")
                 return null

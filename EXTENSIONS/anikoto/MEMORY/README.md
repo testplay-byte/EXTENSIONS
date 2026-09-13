@@ -22,7 +22,7 @@
 
 - **Extension quick-ref**: `../EXTENSION.md` — identity, build commands, current status, key files
 - **APK info sheet**: `../APK_INFO.md`
-- **Latest session**: `session-logs/2027-06-27_session-51_filter-fixes-and-performance-optimizations.md`
+- **Latest session**: `session-logs/2026-09-13_session-54_v16.11-megaplay-cdn-rotation-fix.md`
 - **Architecture overview**: `modules/00-architecture.md`
 - **Build checklist** (project-level): `/home/z/my-project/MEMORY/guides/04-build-checklist.md` ★ mandatory
 - **Fork-compat fix**: `issues-resolutions/04-episode-url-dns-error-in-forks.md`

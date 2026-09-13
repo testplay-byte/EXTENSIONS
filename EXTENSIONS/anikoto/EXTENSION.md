@@ -15,7 +15,7 @@
 | **Package** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` | Distinguishes from other publishers (s49) |
 | **extClass** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` | FULL path, no leading dot (applicationId ≠ source package) |
 | **versionCode** | `10` | Bump per build |
-| **versionName** | `16.10` | |
+| **versionName** | `16.11` | |
 | **Target site** | `anikototv.to` | |
 | **Signing key** | `anikoto-release.jks` (SHA-256 `b467ca64...`, alias `anikoto`) | At `DEV/anikoto-release.jks` — keep secure |
 
@@ -29,16 +29,16 @@ cd /home/z/my-project/EXTENSIONS/anikoto/DEV
 
 # Release APK (signed, R8 minified — for publishing)
 ./gradlew :src:en:anikoto:assembleRelease --no-daemon
-# → src/en/anikoto/build/outputs/apk/release/aniyomi-en.anikoto180-v16.10-release.apk
+# → src/en/anikoto/build/outputs/apk/release/aniyomi-en.anikoto180-v16.11-release.apk
 
 # Debug APK (for testing — no R8, easier logs)
 ./gradlew :src:en:anikoto:assembleDebug --no-daemon
-# → src/en/anikoto/build/outputs/apk/debug/aniyomi-en.anikoto180-v16.10-debug.apk
+# → src/en/anikoto/build/outputs/apk/debug/aniyomi-en.anikoto180-v16.11-debug.apk
 ```
 
 Before/after every build, follow `MEMORY/guides/04-build-checklist.md` (project-level — mandatory).
 
-## Current status (v16.10 Build 10, session 52) — ✅ ALL FEATURES WORKING
+## Current status (v16.11 Build 11, session 54) — ✅ ALL FEATURES WORKING
 
 - **Playback fix (s52)**: megaplay.buzz encrypted its getSources response ("enc" AES-256-CBC blob — playback was 100% broken on megaplay servers). Extension now tries `getSourcesNew` (plaintext, all hosts) first, then `getSources` + AES-256-CBC decrypt of the `enc` blob (`video/MegaPlayDecrypt.kt`, key/IV extracted from megaplay's own `newclient.min.js`). Mirror hosts (megap.shiora.site / megap.mikora.top / s1.akirax.buzz) are WAF-free; segments moved to tiktokcdn with a 252-byte PNG prefix (existing stripper handles it).
 

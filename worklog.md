@@ -3933,3 +3933,19 @@ Work Log:
 Stage Summary:
 - ★ All three user-reported issues root-caused and fixed with source-level evidence; publish rule captured: KEEP previous APKs.
 - ★ Distribution repo now fully consistent: index v16.10 + both APKs present + correct icon + release page.
+
+---
+Task ID: anikoto-session-55
+Agent: Main Agent (Z.ai Code)
+Task: Create a standalone workflow documentation folder (/home/z/anikoto-workflow) covering the full start-to-finish process incl. publishing; install + research scrapegraphai and scrapling (no active use yet, per user).
+
+Work Log:
+- Created /home/z/anikoto-workflow with README / WORKFLOW / REFERENCE / TROUBLESHOOTING / TOOLS / SECRETS (10 Golden Rules distilled from sessions 52-54; 10-stage "extension broke" probe table; publish rules incl. never-delete-APKs and surgical dist-repo commits).
+- Built isolated venv /home/z/scrape-venv (main .venv untouched): scrapling 0.4.15 (+fetchers extra: patchright 1.62.3, playwright 1.62.0), scrapegraphai 2.2.4 (+scrapegraph-py 2.3.1).
+- Hit + documented sandbox caveat: `scrapling install` always fails on `playwright install-deps` (needs apt/sudo) -> engines installed directly via `python -m playwright install chromium` + `python -m patchright install chromium` (exit 0).
+- Verified: Fetcher HTTP smoke test 200; StealthyFetcher real-chromium launch 200; introspected the actual 0.4.15 API (no css_first; find_similar / generate_css_selector / relocate healing methods) and scraped all 26 scrapegraphai graph classes; documented LLM-endpoint requirement (no key provisioned yet).
+- Wrote session-55 memory log; no extension code, releases, or dist-repo files touched.
+
+Stage Summary:
+- ★ Turnkey workflow folder ready: next session starts at /home/z/anikoto-workflow/README.md -> WORKFLOW.md Phase 1.
+- ★ Scraping toolchain installed + verified in /home/z/scrape-venv, researched only (user will say when to activate; LLM key for scrapegraphai still to be provided).

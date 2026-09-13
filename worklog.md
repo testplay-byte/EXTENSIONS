@@ -3966,3 +3966,23 @@ Stage Summary:
 - ★ v16.12 TEST BUILD ready at /home/z/apk-staging/test-build-v16.12/aniyomi-en.anikoto180-v16.12-release.apk — NOT published (no tag/release/dist-repo change); publish = tag v16.12 + Phase 4 when user confirms.
 - ★ Adaptability: CDN-selector whitelist discovered from megaplay's own JS (self-updating), unknown hosts get generic Flow-A attempt, quality from RESOLUTION, smart-search failures self-explain.
 - ★ New rule recorded: never install Android SDK in sandbox; build via CI (release.yml publish=false for test builds).
+
+---
+Task ID: anikoto-session-57
+Agent: Main Agent (Z.ai Code)
+Task: v16.13 TEST BUILD (no publish) — Smart Search overhaul: settings UI cleanup per user spec (no-description toggles, "Smart Search" heading + one-line summary, 2-option engine picker, minimal key field, Gemini 3.x models with 3.5 Flash-Lite recommended + custom model id, conditional Gemini-UI visibility, usage-focused details); fix legacy Google engine ("Google answered but no anime title could be read"); robust error handling incl. auto-clipboard of raw response; use scrapling+scrapegraphai and report honestly; back up all docs to GitHub so any agent can continue from anywhere; Gemini test key used internally only (never shipped).
+
+Work Log:
+- Live probe (scrapling StealthyFetcher) of Google udm=50 with both query styles → ROOT CAUSE: v16.12 sent the whole bracketed LLM prompt as the search query → Google AI Mode conversation layout (no "Search Results"/"AI Overview" markers) → extraction always failed. Also captured the streaming-answer shell ("response is ready"/"Transcribing...") → timing bug #2.
+- Gemini key validation from sandbox: 400 FAILED_PRECONDITION "User location is not supported" (egress = Hong Kong) → key itself VALID (auth passes; geo-check fails). Model IDs verified via web docs: gemini-3.8-flash / gemini-3.5-flash-lite / gemini-3.1-flash-lite.
+- scrapegraphai first REAL run (OpenAI-compat route to Gemini): graph built + fetched + called LLM → died on the same geo-block (tool OK, region blocked; gemini/ prefix unsupported in 2.2.4).
+- Prompt improved + LLM-tested (z-ai skill): exact-title anchoring sentence fixed a "frieren"→"My Hero Academia" hallucination; 8 queries green and stable.
+- Kotlin (commit 47c0b0e, v16.13/code 13): AnikotoSettings overhaul + migration of stored auto/2.x-model values; SmartSearch (thinking-disable+retry, 2048 tokens, thought-filter, geo-block message, clean Google query, 7-strategy extractor S1–S7 with junk/echo cleaning + marker regions, Failure.detail = raw response ≤20k); WebViewFetcher stability polling (2s re-grabs, keep-longest, 25s); Anikoto clipboard copy on failure. All 4 files tree-sitter OK pre-push.
+- Extractor validated 7/7 on real capture + reconstructed A-layout + synthetics; two data-dependent bugs caught and fixed pre-ship ("See your Search history" as footer marker destroyed the answer; 40% junk window shrinkage; single-word quoted titles).
+- Docs backed up to repo: AGENT_ONBOARDING.md (turnkey start-anywhere guide), MEMORY/workflow/sandbox/ mirror (WORKFLOW/REFERENCE/TROUBLESHOOTING/TOOLS/README, SECRETS excluded), modules/06-smart-search.md session-57 section, session-57 log, worklogs. ntfy sent.
+- Actions: dispatch tag=v16.13 publish=false accepted (204); artifact test-build-apks-v16.13.
+
+Stage Summary:
+- ★ v16.13 TEST BUILD artifact for user testing — NO tag/release/dist-repo change. Publish later = tag v16.13 + Phase 4.
+- ★ Legacy smart-search root cause + fix proven against captured real pages; failure debugging = clipboard raw response.
+- ★ Repo is now self-sufficient for any new agent: start at EXTENSIONS/anikoto/AGENT_ONBOARDING.md.

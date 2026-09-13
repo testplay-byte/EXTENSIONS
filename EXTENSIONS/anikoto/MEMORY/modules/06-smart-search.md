@@ -378,3 +378,53 @@ No backend URL, no API key, no server to host. The extension scrapes Google dire
 - **Settings module**: `EXTENSIONS/anikoto/MEMORY/modules/05-settings.md`
 - **Video pipeline** (WebViewFetcher): `EXTENSIONS/anikoto/MEMORY/modules/03-video-pipeline.md`
 - **Session 51 log**: `EXTENSIONS/anikoto/MEMORY/session-logs/2027-06-27_session-51_*.md`
+
+---
+
+## ★ Session 57 (v16.13 TEST BUILD) — Settings overhaul + legacy-engine root-cause fix
+
+> Supersedes parts of this document above (engine list, prompt, extraction strategies).
+> Full detail: `MEMORY/session-logs/2026-09-13_session-57_v16.13-smart-search-overhaul.md`.
+
+### Settings (user-spec)
+- Episode-metadata toggles: **no descriptions** anymore.
+- Toggle: heading **"Smart Search"**, summary **"Search spelling correction and smarter description searching"**.
+- Engine picker: exactly **"Google Gemini API"** / **"Google AI Search"** (values `gemini`/`google`).
+  Legacy stored `auto` migrates → gemini (if key set) else google.
+- Gemini key field: no dialog text; summary "Not set" / "••••1234".
+- Model picker: **Gemini 3.5 Flash-Lite (Recommended, default)** · Gemini 3.8 Flash ·
+  Gemini 3.1 Flash-Lite · **Custom model ID** (free-text pref `pref_gemini_custom_model`;
+  pre-3.x stored ids auto-move to the custom field).
+- "Test connection" (renamed). Engine=google **hides** key/model/custom/test prefs
+  (`applyEngineVisibility()`, re-applied via main-handler post).
+- Bottom block: "How to use" (usage steps, engine note, clipboard-failure note). No model details.
+
+### Engines
+- **Gemini**: thinking-disabled request (`thinkingConfig.thinkingBudget=0`) with auto-retry
+  without it if the model rejects; maxOutputTokens 2048; `thought` parts filtered; shared
+  companion plumbing in SmartSearch.kt (`postGemini`, `buildGeminiRequestBody`,
+  `geminiApiErrorMessage`, `describeGeminiHttpError`, `testGemini`).
+  Geo-block 400 "User location is not supported" gets an explicit user message.
+- **Google (legacy)**: sends a CLEAN query (`"<query> anime"`) — v16.12's full-prompt query was
+  THE root cause of "no anime title could be read" (it triggered the AI Mode conversation UI).
+  `fetchRenderedText` now polls every 2s keeping the LONGEST text until stable (answers stream
+  post-load; 25s deadline).
+
+### Extraction (7 strategies, in order, per marker-prioritized region)
+S1 is-titled/called/named/known-as · S2 describing-is/looking-for-is ·
+S3 "Would you like to know more about X" (AI-Mode follow-up phrasing) · S4 "Did you mean: X" ·
+S5 quoted (single-word capitalized allowed) · S6 MyAnimeList/AniList URL slug → Title Case ·
+S7 title-like line scan (2–12 words, ≥50% caps, no " is "/" are ", skip-word list).
+Pre-clean: markdown strip, real footer cuts ("AI can make mistakes", "Was this response
+helpful", "Was this helpful", "Give feedback" — NOT "See your Search history", that's sidebar
+UI), junk-line list, query-echo drop **except title-like lines** (protects exact-title answers).
+Validated 7/7 on real stealth captures + reconstruction (`/home/z/probe-s56/validate_extractor.py`).
+
+### Failure debugging
+`ResolveResult.Failure.detail` now carries the raw response (Google: rendered text ≤20k chars;
+Gemini: error body ≤600). `Anikoto.kt` copies it to the clipboard on failure; the toast appends
+"(raw response copied to clipboard)".
+
+### Prompt (Gemini only)
+Added: "If the query is already an anime title or close to one, return that title with spelling
+corrected." (LLM-tested — fixes one-word-title hallucinations, e.g. "frieren").

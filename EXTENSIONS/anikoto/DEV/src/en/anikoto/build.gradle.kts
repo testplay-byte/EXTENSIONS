@@ -20,7 +20,7 @@ android {
         // loader use it as-is → finds the class at ...anikoto.Anikoto. Verified in the loader source:
         // SHARED/REFERENCE_HUB/aniyomi-app/.../AnimeExtensionLoader.kt:297-301.
         val extClass = "eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto"
-        val extVersionCode = 11 // v16.11 (session 54: fix megaplay CDN rotation — default CDN master m3u8 403s non-browser TLS; use the site's `s=` CDN selector (tcdn) with master-fetch verification + WebView last resort)
+        val extVersionCode = 12 // v16.12 (session 56: dynamic megaplay CDN-selector discovery (bcdn/tcdn + page whitelist) fixes missing VidStream-2; quality label from RESOLUTION not mislabeled NAME (360p); Smart Search engine picker (Gemini API key + model selection / hardened Google scrape with specific error toasts); generic Flow-A fallback for unknown iframe hosts)
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

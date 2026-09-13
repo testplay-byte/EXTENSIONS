@@ -24,6 +24,14 @@ on:
       tag:
         description: 'Release tag (e.g. v16.9)'
         required: true
+      publish:
+        description: 'Publish release? false = build signed APKs and upload as workflow ARTIFACT only (test build — no release, no tag, no Pages redeploy)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
 
 permissions:
   contents: write   # needed by softprops/action-gh-release to create the release
@@ -123,6 +131,7 @@ jobs:
           fi
 
       - name: Create GitHub Release with APKs
+        if: ${{ github.event_name == 'push' || inputs.publish == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.name }}
@@ -131,10 +140,21 @@ jobs:
           files: release-assets/*.apk
           fail_on_unmatched_files: true
 
+      # ★ Test-build mode: upload the signed APKs as workflow artifacts WITHOUT creating
+      # a release or touching Pages. Trigger with:
+      #   gh workflow run release.yml -f tag=v16.X -f publish=false
+      - name: Upload test-build artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-build-apks-${{ steps.tag.outputs.name }}
+          path: release-assets/*.apk
+          retention-days: 14
+
       # Re-deploy Pages so the new APKs are copied into /downloads/ and the
       # site's same-origin download links serve the freshly built APKs.
       - name: Trigger Pages redeploy
-        if: success()
+        if: ${{ success() && (github.event_name == 'push' || inputs.publish == 'true') }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

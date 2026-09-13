@@ -7,12 +7,14 @@ import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.graphics.Typeface
+import android.widget.Toast
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceScreen
 import androidx.preference.SwitchPreferenceCompat
+import eu.kanade.tachiyomi.animeextension.en.anikoto.smartsearch.SmartSearch
 
 /**
  * ★ Module: Settings — all preference keys, defaults, typed getters, and the settings UI.
@@ -80,12 +82,27 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
     val smartSearchEnabled: Boolean
         get() = prefs.getBoolean(PREF_SMART_SEARCH_KEY, PREF_SMART_SEARCH_DEFAULT)
 
-    /** The activation phrase that triggers smart search (default: empty — disabled).
+    /** The activation phrase that triggers smart search (default: "?" — query must start with it).
      *  When the user types this phrase at the start of their search query,
      *  smart search is triggered. Case-insensitive. */
     val smartSearchPhrase: String
         get() = prefs.getString(PREF_SMART_SEARCH_PHRASE_KEY, PREF_SMART_SEARCH_PHRASE_DEFAULT)
             ?: PREF_SMART_SEARCH_PHRASE_DEFAULT
+
+    /** ★ session 56: Which smart search engine to use ("auto" | "gemini" | "google"). */
+    val smartSearchEngine: String
+        get() = prefs.getString(PREF_SMART_ENGINE_KEY, PREF_SMART_ENGINE_DEFAULT)
+            ?: PREF_SMART_ENGINE_DEFAULT
+
+    /** ★ session 56: The user's Google Gemini API key (blank = not set). */
+    val geminiApiKey: String
+        get() = prefs.getString(PREF_GEMINI_KEY_KEY, PREF_GEMINI_KEY_DEFAULT)
+            ?: PREF_GEMINI_KEY_DEFAULT
+
+    /** ★ session 56: The Gemini model id (e.g. "gemini-2.5-flash"). */
+    val geminiModel: String
+        get() = prefs.getString(PREF_GEMINI_MODEL_KEY, PREF_GEMINI_MODEL_DEFAULT)
+            ?: PREF_GEMINI_MODEL_DEFAULT
 
     // ── Settings UI ────────────────────────────────────────────────────
 
@@ -213,7 +230,7 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
             }.also(::addPreference)
         }
 
-        // ── Category 4: Smart Search (session 51) ──────────────────────
+        // ── Category 4: Smart Search (session 51, engines session 56) ───
         PreferenceCategory(screen.context).apply {
             title = "Smart Search"
             screen.addPreference(this)
@@ -224,6 +241,83 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
                 summaryOn = "AI resolves descriptive queries and corrects spelling"
                 summaryOff = "Smart search disabled (normal keyword search only)"
                 setDefaultValue(PREF_SMART_SEARCH_DEFAULT)
+            }.also(::addPreference)
+
+            // ★ session 56: engine picker
+            ListPreference(context).apply {
+                key = PREF_SMART_ENGINE_KEY
+                title = "AI engine"
+                entries = arrayOf(
+                    "Auto (Gemini if key is set, else Google)",
+                    "Google Gemini API (recommended — needs API key)",
+                    "Google AI Search (legacy — no key, may be blocked by Google)",
+                )
+                entryValues = arrayOf("auto", "gemini", "google")
+                setDefaultValue(PREF_SMART_ENGINE_DEFAULT)
+                summary = "Currently: %s"
+            }.also(::addPreference)
+
+            // ★ session 56: Gemini API key
+            EditTextPreference(context).apply {
+                key = PREF_GEMINI_KEY_KEY
+                title = "Gemini API key"
+                dialogTitle = "Gemini API key"
+                dialogMessage = "Paste your free Google Gemini API key.\n" +
+                    "Get one at: aistudio.google.com/apikey\n\n" +
+                    "The key is stored only in this extension's private settings and is\n" +
+                    "sent only to Google's generativelanguage.googleapis.com endpoint."
+                setDefaultValue(PREF_GEMINI_KEY_DEFAULT)
+                updateGeminiKeySummary(this, null)
+                onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, newValue ->
+                    updateGeminiKeySummary(this, newValue as? String)
+                    true
+                }
+            }.also(::addPreference)
+
+            // ★ session 56: Gemini model picker
+            ListPreference(context).apply {
+                key = PREF_GEMINI_MODEL_KEY
+                title = "Gemini model"
+                entries = arrayOf(
+                    "gemini-2.5-flash (fast, free tier)",
+                    "gemini-2.5-flash-lite (fastest, cheapest)",
+                    "gemini-2.5-pro (smartest, lower limits)",
+                    "gemini-2.0-flash",
+                    "gemini-1.5-flash",
+                    "gemini-1.5-pro",
+                )
+                entryValues = arrayOf(
+                    "gemini-2.5-flash",
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.5-pro",
+                    "gemini-2.0-flash",
+                    "gemini-1.5-flash",
+                    "gemini-1.5-pro",
+                )
+                setDefaultValue(PREF_GEMINI_MODEL_DEFAULT)
+                summary = "Currently: %s"
+            }.also(::addPreference)
+
+            // ★ session 56: connection test button
+            Preference(context).apply {
+                key = "pref_gemini_test"
+                title = "Test Gemini connection"
+                summary = "Sends a tiny test request with the key + model above and reports the exact result."
+                setOnPreferenceClickListener {
+                    val appContext = it.context.applicationContext
+                    val key = prefs.getString(PREF_GEMINI_KEY_KEY, PREF_GEMINI_KEY_DEFAULT).orEmpty()
+                    val model = prefs.getString(PREF_GEMINI_MODEL_KEY, PREF_GEMINI_MODEL_DEFAULT)
+                        ?: PREF_GEMINI_MODEL_DEFAULT
+                    Toast.makeText(appContext, "Testing Gemini $model …", Toast.LENGTH_SHORT).show()
+                    Thread {
+                        val error = SmartSearch.testGemini(key, model)
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            val msg = if (error == null) "Gemini works! ($model)" else error
+                            Toast.makeText(appContext, msg, Toast.LENGTH_LONG).show()
+                        }
+                    }.start()
+                    true
+                }
             }.also(::addPreference)
 
             EditTextPreference(context).apply {
@@ -245,23 +339,36 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
 
             Preference(context).apply {
                 title = "Details"
-                val currentPhrase = (prefs.getString(PREF_SMART_SEARCH_PHRASE_KEY, PREF_SMART_SEARCH_PHRASE_DEFAULT) ?: PREF_SMART_SEARCH_PHRASE_DEFAULT).ifBlank { "(empty)" }
-                val phraseDisplay = if (currentPhrase == "(empty)") "(empty — AI used for all)" else "\"$currentPhrase\""
-                summary = "Type your activation phrase at the start of your search to trigger AI.\n" +
-                    "Leave empty to use AI for all searches.\n\n" +
-                    "Case-insensitive. Must be followed by a space.\n\n" +
-                    "Your phrase: $phraseDisplay\n\n" +
-                    "Examples:\n" +
-                    "• ${currentPhrase.takeIf { it != "(empty)" } ?: "?"} the anime with a russian girl\n" +
-                    "• ${currentPhrase.takeIf { it != "(empty)" } ?: "?"} narutp\n" +
-                    "• ${currentPhrase.takeIf { it != "(empty)" } ?: "?"} anime about a spy\n\n" +
-                    "Note: ~5-8s latency per AI search."
+                val currentEngine = prefs.getString(PREF_SMART_ENGINE_KEY, PREF_SMART_ENGINE_DEFAULT) ?: PREF_SMART_ENGINE_DEFAULT
+                val keySet = !prefs.getString(PREF_GEMINI_KEY_KEY, "").isNullOrBlank()
+                summary = "Engines:\n" +
+                    "• Gemini API — reliable, no bot walls. Needs a free key from aistudio.google.com/apikey.\n" +
+                    "• Google AI Search — legacy scraping; Google often blocks it (CAPTCHA/consent).\n\n" +
+                    "Current engine: $currentEngine\n" +
+                    "Gemini key: ${if (keySet) "set" else "NOT set"}\n\n" +
+                    "If smart search fails, a toast now tells you exactly why\n" +
+                    "(invalid key, quota, CAPTCHA, timeout, …).\n\n" +
+                    "Note: AI resolution adds ~1-5s (Gemini) or ~5-20s (Google) latency."
                 isSelectable = false
             }.also(::addPreference)
         }
     }
 
-    // ── Smart Search helpers (session 51) ──────────────────────────────
+    // ── Smart Search helpers (session 51/56) ────────────────────────────
+
+    /** ★ session 56: Masked summary for the Gemini API key preference (shows last 4 chars).
+     *  @param overrideValue when non-null, shown instead of the stored value (the change
+     *  listener fires BEFORE the new value is persisted). */
+    private fun updateGeminiKeySummary(pref: EditTextPreference, overrideValue: String?) {
+        val key = (overrideValue
+            ?: prefs.getString(PREF_GEMINI_KEY_KEY, PREF_GEMINI_KEY_DEFAULT).orEmpty()).trim()
+        val text = when {
+            key.isEmpty() -> "Not set — get a free key at aistudio.google.com/apikey"
+            key.length <= 8 -> "Set (••••)"
+            else -> "Set (••••••••${key.takeLast(4)})"
+        }
+        pref.summary = text
+    }
 
     /**
      * ★ session 51: Update the activation phrase preference summary.
@@ -316,10 +423,17 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
         internal const val PREF_LOAD_DESCRIPTIONS_KEY = "pref_load_descriptions"
         internal const val PREF_LOAD_DESCRIPTIONS_DEFAULT = true
 
-        // Smart Search (session 51)
+        // Smart Search (session 51/56)
         internal const val PREF_SMART_SEARCH_KEY = "pref_smart_search"
         internal const val PREF_SMART_SEARCH_DEFAULT = false // ★ OFF by default — user must opt in
         internal const val PREF_SMART_SEARCH_PHRASE_KEY = "pref_smart_search_phrase"
         internal const val PREF_SMART_SEARCH_PHRASE_DEFAULT = "?" // ★ default phrase is question mark
+        // ★ session 56: engine + Gemini settings
+        internal const val PREF_SMART_ENGINE_KEY = "pref_smart_engine"
+        internal const val PREF_SMART_ENGINE_DEFAULT = "auto"
+        internal const val PREF_GEMINI_KEY_KEY = "pref_gemini_key"
+        internal const val PREF_GEMINI_KEY_DEFAULT = ""
+        internal const val PREF_GEMINI_MODEL_KEY = "pref_gemini_model"
+        internal const val PREF_GEMINI_MODEL_DEFAULT = "gemini-2.5-flash"
     }
 }

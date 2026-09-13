@@ -2,24 +2,48 @@ package eu.kanade.tachiyomi.animeextension.en.anikoto.smartsearch
 
 import eu.kanade.tachiyomi.animeextension.en.anikoto.AnikotoLog
 import eu.kanade.tachiyomi.animeextension.en.anikoto.video.WebViewFetcher
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
+import java.util.concurrent.TimeUnit
 
 /**
- * ★ session 51: Smart Search module — AI-powered anime search via Google AI Search.
+ * ★ session 51/56: Smart Search module — AI-powered anime search.
  *
  * This module is self-contained and can be easily removed or transferred.
  * To remove smart search:
- * 1. Delete this file and [SmartSearchSettings]
+ * 1. Delete this file
  * 2. Remove the `smartSearch` field and `getSearchAnime()` override from Anikoto.kt
  * 3. Remove the smart search settings from AnikotoSettings.kt
  *
  * ## What it does
- * Resolves descriptive queries or misspelled titles to a concrete anime title
- * using Google AI Search (udm=50), then returns that title for normal search.
+ * Resolves descriptive queries or misspelled titles to a concrete anime title,
+ * then returns that title for normal search.
  *
- * ## Two modes
- * 1. Descriptive: "the anime with a russian girl" → AI returns "Alya Sometimes..."
- * 2. Correction: "narutp" → AI corrects to "Naruto"
+ * ## Two engines (★ session 56 — user-selectable in settings)
+ * 1. **Gemini API** — official Google Generative Language REST API
+ *    (generativelanguage.googleapis.com). Needs a free API key from
+ *    https://aistudio.google.com/apikey. Robust JSON API — no scraping, no bot walls.
+ *    Model is user-selectable (gemini-2.5-flash by default).
+ * 2. **Google AI Search (legacy)** — scrapes the rendered text of
+ *    google.com/search?q=…&udm=50 via WebView. Works without a key, but Google
+ *    actively fights automated browsers, so it fails intermittently.
+ *    ★ session 56: every failure mode is now CLASSIFIED and reported to the user
+ *    (bot-check, consent page, timeout, unparsable answer…) instead of a generic
+ *    "unable to initiate" message.
+ *
+ * ## Engine selection
+ * - `auto` (default): Gemini if an API key is set, else Google scrape.
+ * - `gemini`: Gemini only.
+ * - `google`: Google scrape only.
  *
  * ## Triggering
  * Smart search triggers when:
@@ -36,6 +60,19 @@ class SmartSearch(
     /** Cache for pagination: last query (phrase stripped) → resolved title. */
     private var cachedQuery: String = ""
     private var cachedTitle: String = ""
+
+    /** ★ session 56: dedicated client for the Gemini REST API (short, predictable timeouts). */
+    private val geminiClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(15, TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    // ── Triggering ────────────────────────────────────────────────────────
 
     /**
      * Check if smart search should trigger for this query.
@@ -68,10 +105,6 @@ class SmartSearch(
     /**
      * Strip the activation phrase from the start of the query.
      * If phrase is empty, returns the query as-is.
-     *
-     * @param query The raw user query
-     * @param phrase The activation phrase
-     * @return The query with phrase removed from start (trimmed)
      */
     fun stripPhrase(query: String, phrase: String): String {
         val phraseTrimmed = phrase.trim()
@@ -85,24 +118,241 @@ class SmartSearch(
         return queryTrimmed
     }
 
+    // ── Resolution (session 56: result-based with classified errors) ─────
+
     /**
-     * Resolve a query to an anime title via Google AI Search.
-     *
-     * 1. Craft Google AI URL (udm=50 triggers AI Overview)
-     * 2. Scrape rendered page text via WebViewFetcher
-     * 3. Extract the anime title using 3 strategies
+     * ★ session 56: Result of an AI resolution attempt.
+     * @property userMessage A specific, user-facing explanation of WHAT failed and WHY
+     *   (shown as a toast). Never generic when a specific reason is known.
+     */
+    sealed class ResolveResult {
+        data class Success(val title: String) : ResolveResult()
+        data class Failure(val userMessage: String, val detail: String? = null) : ResolveResult()
+    }
+
+    /** Engine ids — mirror AnikotoSettings.PREF_SMART_ENGINE_* values. */
+    object Engine {
+        const val AUTO = "auto"
+        const val GEMINI = "gemini"
+        const val GOOGLE = "google"
+    }
+
+    /**
+     * ★ session 56: Resolve a query to an anime title using the selected engine.
      *
      * @param query The descriptive query or misspelled title
-     * @return The resolved anime title, or null on failure
+     * @param engine One of [Engine.AUTO]/[Engine.GEMINI]/[Engine.GOOGLE]
+     * @param geminiApiKey The user's Gemini API key (may be blank)
+     * @param geminiModel The Gemini model id (e.g. "gemini-2.5-flash")
+     * @return [ResolveResult.Success] with the title, or [ResolveResult.Failure]
+     *         with a specific user-facing reason.
      */
-    fun resolve(query: String): String? {
+    fun resolve(query: String, engine: String, geminiApiKey: String, geminiModel: String): ResolveResult {
         if (query.isBlank()) {
-            AnikotoLog.w("SmartSearch: empty query")
-            return null
+            return ResolveResult.Failure("Smart search: empty query")
         }
+        AnikotoLog.i("SmartSearch: resolving (engine=$engine) query: \"$query\"")
 
-        AnikotoLog.i("SmartSearch: resolving query: \"$query\"")
+        return when (engine) {
+            Engine.GEMINI -> resolveWithGemini(query, geminiApiKey, geminiModel)
+            Engine.GOOGLE -> resolveWithGoogle(query)
+            else -> { // AUTO
+                if (geminiApiKey.isNotBlank()) {
+                    val geminiResult = resolveWithGemini(query, geminiApiKey, geminiModel)
+                    if (geminiResult is ResolveResult.Success) return geminiResult
+                    // ★ auto mode: Gemini failed → transparently try the Google path
+                    // (still report BOTH reasons so the user knows what happened)
+                    val googleResult = resolveWithGoogle(query)
+                    if (googleResult is ResolveResult.Success) {
+                        AnikotoLog.i("SmartSearch: auto fallback Gemini→Google succeeded")
+                        return googleResult
+                    }
+                    val geminiWhy = (geminiResult as ResolveResult.Failure).userMessage
+                    val googleWhy = googleResult.userMessage
+                    return ResolveResult.Failure(
+                        "Gemini failed ($geminiWhy); Google fallback failed ($googleWhy)",
+                    )
+                }
+                resolveWithGoogle(query)
+            }
+        }
+    }
 
+    // ── Engine 1: Gemini API ──────────────────────────────────────────────
+
+    /**
+     * ★ session 56: Resolve via the official Gemini REST API.
+     * POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent
+     * Auth: `x-goog-api-key` header.
+     */
+    private fun resolveWithGemini(query: String, apiKey: String, model: String): ResolveResult {
+        if (apiKey.isBlank()) {
+            return ResolveResult.Failure(
+                "Gemini API key is not set — add one in Settings → Smart Search",
+                "blank key",
+            )
+        }
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent"
+        AnikotoLog.i("SmartSearch: Gemini resolve via $model")
+        return try {
+            val body = buildGeminiRequestBody(query)
+            val req = Request.Builder()
+                .url(url)
+                .header("x-goog-api-key", apiKey.trim())
+                .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            geminiClient.newCall(req).execute().use { resp ->
+                val respBody = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) {
+                    parseGeminiSuccess(respBody)
+                        ?.let { return ResolveResult.Success(it) }
+                        ?: ResolveResult.Failure(
+                            "Gemini replied but no title could be read from its answer",
+                            respBody.take(300),
+                        )
+                } else {
+                    ResolveResult.Failure(describeGeminiHttpError(resp.code, respBody), respBody.take(400))
+                }
+            }
+        } catch (e: java.io.IOException) {
+            AnikotoLog.e("SmartSearch: Gemini network error", e)
+            ResolveResult.Failure(
+                "Could not reach the Gemini API (network error: ${e.javaClass.simpleName})",
+                e.message,
+            )
+        } catch (e: Exception) {
+            AnikotoLog.e("SmartSearch: Gemini unexpected error", e)
+            ResolveResult.Failure("Gemini request failed unexpectedly: ${e.message?.take(80)}", null)
+        }
+    }
+
+    /** Build the generateContent JSON body (prompt + deterministic generation config). */
+    private fun buildGeminiRequestBody(query: String): String {
+        val prompt = buildPrompt(query)
+        val payload = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", kotlinx.serialization.json.JsonPrimitive("user"))
+                    put("parts", buildJsonArray {
+                        add(buildJsonObject { put("text", kotlinx.serialization.json.JsonPrimitive(prompt)) })
+                    })
+                })
+            })
+            put("generationConfig", buildJsonObject {
+                put("temperature", kotlinx.serialization.json.JsonPrimitive(0.1))
+                put("maxOutputTokens", kotlinx.serialization.json.JsonPrimitive(512))
+            })
+        }
+        return payload.toString()
+    }
+
+    /** Extract the anime title from a successful generateContent response. */
+    private fun parseGeminiSuccess(body: String): String? {
+        return try {
+            val root = json.parseToJsonElement(body).jsonObject
+            val candidates = root["candidates"] as? JsonArray ?: return null
+            val first = candidates.firstOrNull() as? JsonObject ?: return null
+            val content = first["content"] as? JsonObject ?: return null
+            val parts = content["parts"] as? JsonArray ?: return null
+            val text = parts.mapNotNull { (it as? JsonObject)?.get("text")?.jsonPrimitive?.content }
+                .joinToString(" ")
+                .trim()
+            if (text.isBlank()) return null
+            AnikotoLog.d("SmartSearch: Gemini raw answer: ${AnikotoLog.trunc(text, 200)}")
+            cleanTitle(text)
+        } catch (e: Exception) {
+            AnikotoLog.e("SmartSearch: Gemini response parse failed", e)
+            null
+        }
+    }
+
+    /**
+     * ★ session 56: Map a Gemini HTTP error to a SPECIFIC user-facing message.
+     * Error shapes verified live 2026-09-13:
+     * `{"error":{"code":400,"message":"API key not valid. …","status":"INVALID_ARGUMENT"}}`
+     */
+    private fun describeGeminiHttpError(code: Int, body: String): String {
+        val apiMessage = try {
+            (json.parseToJsonElement(body).jsonObject["error"]?.jsonObject?.get("message")
+                ?.jsonPrimitive?.content)?.take(120)
+        } catch (_: Exception) { null }
+        val prefix = when (code) {
+            400 -> if (apiMessage?.contains("API key not valid", true) == true)
+                "Gemini API key is invalid (check Settings → Smart Search)"
+            else "Gemini rejected the request (HTTP 400)"
+            401, 403 -> "Gemini API key was rejected (HTTP $code) — invalid, restricted, or Gemini API disabled for this key"
+            404 -> "Gemini model not found (HTTP 404) — pick a different model in Settings"
+            429 -> "Gemini quota exceeded (HTTP 429) — free-tier limit hit, try again later or switch model"
+            in 500..599 -> "Gemini server error (HTTP $code) — Google-side problem, try again"
+            else -> "Gemini API error (HTTP $code)"
+        }
+        return if (apiMessage != null) "$prefix — ${apiMessage}" else prefix
+    }
+
+    /**
+     * ★ session 56: Connection test for the settings "Test API key" button.
+     * Self-contained (own client) so the settings screen can call it without a
+     * SmartSearch instance. @return null on success, or a user-facing error message.
+     */
+    fun testGemini(apiKey: String, model: String): String? {
+        if (apiKey.isBlank()) return "Gemini API key is not set — paste your key first"
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/${model.trim()}:generateContent"
+        val payload = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Reply with exactly: OK\"}]}]}"
+        return try {
+            client.newCall(
+                Request.Builder()
+                    .url(url)
+                    .header("x-goog-api-key", apiKey.trim())
+                    .post(payload.toRequestBody("application/json; charset=utf-8".toMediaType()))
+                    .build()
+            ).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.isSuccessful) null
+                else describeGeminiHttpErrorStatic(resp.code, body)
+            }
+        } catch (e: java.io.IOException) {
+            "Could not reach the Gemini API (network error: ${e.javaClass.simpleName})"
+        } catch (e: Exception) {
+            "Test request failed: ${e.message?.take(80)}"
+        }
+    }
+
+    /** Static mirror of [describeGeminiHttpError] for [testGemini]. */
+    private fun describeGeminiHttpErrorStatic(code: Int, body: String): String {
+        val apiMessage = try {
+            (jsonStatic.parseToJsonElement(body).jsonObject["error"]?.jsonObject?.get("message")
+                ?.jsonPrimitive?.content)?.take(120)
+        } catch (_: Exception) { null }
+        val prefix = when (code) {
+            400 -> if (apiMessage?.contains("API key not valid", true) == true)
+                "Gemini API key is invalid (re-check the pasted key)"
+            else "Gemini rejected the request (HTTP 400)"
+            401, 403 -> "Gemini API key was rejected (HTTP $code) — invalid, restricted, or Generative Language API not enabled for it"
+            404 -> "Model not found (HTTP 404) — pick a different model"
+            429 -> "Gemini quota exceeded (HTTP 429) — free-tier limit, try later or switch model"
+            in 500..599 -> "Gemini server error (HTTP $code) — Google-side problem"
+            else -> "Gemini API error (HTTP $code)"
+        }
+        return if (apiMessage != null) "$prefix — ${apiMessage}" else prefix
+    }
+
+    private val jsonStatic = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    // ── Engine 2: Google AI search scraping (legacy, hardened) ───────────
+
+    /**
+     * ★ session 56: Resolve via Google AI search scraping — now with FAILURE CLASSIFICATION.
+     * Instead of one opaque failure, the user is told which of these happened:
+     * - timeout / network error
+     * - bot-check (CAPTCHA / "unusual traffic")
+     * - consent wall ("Before you continue")
+     * - Google returned a page but no title could be parsed
+     */
+    private fun resolveWithGoogle(query: String): ResolveResult {
         val searchQuery = buildPrompt(query)
         val encodedQuery = URLEncoder.encode(searchQuery, "UTF-8")
         val googleUrl = "https://www.google.com/search?q=$encodedQuery&udm=50&hl=en"
@@ -111,29 +361,64 @@ class SmartSearch(
         val renderedText = try {
             webViewFetcher.fetchRenderedText(googleUrl, timeoutMs = 20_000)
         } catch (e: Exception) {
-            AnikotoLog.e("SmartSearch: scrape failed", e)
-            return null
+            AnikotoLog.e("SmartSearch: scrape crashed", e)
+            return ResolveResult.Failure(
+                "Google search could not be opened (${e.javaClass.simpleName})",
+                e.message,
+            )
         }
 
         if (renderedText.isBlank()) {
-            AnikotoLog.w("SmartSearch: Google scrape returned empty text")
-            return null
+            return ResolveResult.Failure(
+                "Google search returned nothing in time — likely a timeout or Google blocking the app's browser",
+            )
         }
-
         AnikotoLog.d("SmartSearch: Google rendered text (${renderedText.length} chars, first 500: ${AnikotoLog.trunc(renderedText, 500)})")
+
+        // ★ session 56: classify BLOCKED states BEFORE trying to parse a title.
+        classifyGoogleBlock(renderedText)?.let { return it }
 
         val title = extractAnimeTitle(renderedText)
         if (title == null) {
-            AnikotoLog.w("SmartSearch: could not extract title from Google AI text")
-            return null
+            return ResolveResult.Failure(
+                "Google answered, but no anime title could be read from its response — try rephrasing or use the Gemini engine",
+            )
         }
-
         AnikotoLog.i("SmartSearch: extracted title: \"$title\"")
-        return title
+        return ResolveResult.Success(title)
     }
 
     /**
-     * ★ session 51: Build the AI prompt with smarter instructions.
+     * ★ session 56: Detect Google's anti-bot / consent walls in the rendered text.
+     * @return a Failure with the specific reason, or null if the page looks usable.
+     */
+    private fun classifyGoogleBlock(text: String): ResolveResult.Failure? {
+        val lower = text.lowercase()
+        return when {
+            listOf("unusual traffic", "not a robot", "captcha").any { it in lower } ->
+                ResolveResult.Failure(
+                    "Google triggered its bot-check (CAPTCHA) — automated search is blocked right now; the Gemini engine avoids this entirely",
+                )
+            listOf("before you continue", "consent.google").any { it in lower } ->
+                ResolveResult.Failure(
+                    "Google showed its cookie-consent page instead of results — the Gemini engine avoids this",
+                )
+            listOf("enable javascript", "enablejs").any { it in lower } && text.length < 400 ->
+                ResolveResult.Failure(
+                    "Google demanded JavaScript in a way the app's browser could not satisfy",
+                )
+            listOf("sign in to confirm", "confirm you're not a bot").any { it in lower } ->
+                ResolveResult.Failure(
+                    "Google is asking for sign-in verification — automated search is blocked; the Gemini engine avoids this",
+                )
+            else -> null
+        }
+    }
+
+    // ── Prompt + title extraction (session 51, unchanged logic) ──────────
+
+    /**
+     * Build the AI prompt with smarter instructions.
      *
      * The prompt is wrapped in brackets and includes:
      * - The user's query
@@ -149,6 +434,30 @@ class SmartSearch(
             "If the query mentions a genre or theme, give one popular anime from that genre. " +
             "If the query is vague, give the most likely anime match. " +
             "Always respond with exactly one anime title, no explanations, no lists.]"
+    }
+
+    /**
+     * ★ session 56: Clean an AI answer into a bare title.
+     * Handles: surrounding quotes, bracket-wrapped prompt echoes "[...]",
+     * leading "Title:" prefixes, trailing punctuation, and multi-line answers
+     * (takes the first meaningful line).
+     */
+    private fun cleanTitle(raw: String): String? {
+        var s = raw.trim()
+        if (s.isEmpty()) return null
+        // Take the first non-empty line (Gemini occasionally adds a preamble line)
+        s = s.lines().firstOrNull { it.isNotBlank() }?.trim() ?: return null
+        // Strip bracket-wrapped prompt echoes: "[ Respond with only ... ]"
+        s = s.replace(Regex("^\\[[^\\]]*]\\s*"), "").trim()
+        // Strip leading "Title:" / "Anime:" prefixes
+        s = s.replace(Regex("^(title|anime)\\s*:\\s*", RegexOption.IGNORE_CASE), "").trim()
+        // Strip surrounding quotes (straight + curly)
+        s = s.trim('"', '\'', '\u201C', '\u201D', '\u2018', '\u2019', ' ')
+        // Strip trailing period(s) but keep inner punctuation
+        s = s.trimEnd('.', ' ')
+        if (s.isBlank()) return null
+        val wordCount = s.split(Regex("\\s+")).filter { it.isNotEmpty() }.size
+        return if (wordCount in 1..12) s else null
     }
 
     /**
@@ -241,6 +550,8 @@ class SmartSearch(
         return result
     }
 
+    // ── Cache + warm-up ───────────────────────────────────────────────────
+
     /**
      * Get the cached title for a query (for pagination).
      * Returns null if not cached or if query doesn't match cache.
@@ -259,7 +570,7 @@ class SmartSearch(
         cachedTitle = title
     }
 
-    /** Pre-warm the Google WebView for smart search. */
+    /** Pre-warm the Google WebView for smart search (legacy engine). */
     fun warmUp() {
         webViewFetcher.warmUpGoogleWebView()
     }

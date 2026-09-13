@@ -202,16 +202,18 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /**
-     * ★ session 51: Override getSearchAnime to intercept smart search queries.
+     * ★ session 51/56: Override getSearchAnime to intercept smart search queries.
      *
      * If smart search is triggered (toggle ON + phrase matches):
      * 1. Strip the phrase
      * 2. Check cache (for pagination — page 2+ reuses)
-     * 3. Resolve via AI → ONE anime title
-     * 4. Search anikototv.to for that title
+     * 3. Resolve via the selected engine (Gemini API / Google scrape / auto) → ONE title.
+     *    ★ session 56: failures are reported to the user with the SPECIFIC reason
+     *    (bad key, quota, bot-check, consent wall, timeout, unparsable answer…).
+     * 4. Search the site for that title
      * 5. If 0 results on page 1, retry with first 3 significant words
      *
-     * If anything fails, shows a toast and falls back to normal search.
+     * If anything fails, shows a toast explaining why, and falls back to normal search.
      */
     override suspend fun getSearchAnime(page: Int, query: String, filters: AnimeFilterList): AnimesPage {
         if (!smartSearch.shouldTrigger(query, smartSearchEnabled, smartSearchPhrase)) {
@@ -231,15 +233,21 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         val title = if (cachedTitle != null) {
             cachedTitle
         } else {
-            val resolved = smartSearch.resolve(strippedQuery)
-            if (resolved == null) {
-                AnikotoLog.w("SmartSearch: AI resolution failed, falling back to normal search")
-                smartSearch.cacheTitle(strippedQuery, strippedQuery)
-                showToast("AI search was unable to initiate and fell back to normal search")
+            // ★ session 56: engine selection + specific failure reporting
+            val resolved = smartSearch.resolve(
+                strippedQuery,
+                settings.smartSearchEngine,
+                settings.geminiApiKey,
+                settings.geminiModel,
+            )
+            if (resolved !is SmartSearch.ResolveResult.Success) {
+                val why = (resolved as SmartSearch.ResolveResult.Failure).userMessage
+                AnikotoLog.w("SmartSearch: resolution FAILED — $why")
+                showToast("Smart search failed: $why")
                 return super.getSearchAnime(page, query, filters)
             }
-            smartSearch.cacheTitle(strippedQuery, resolved)
-            resolved
+            smartSearch.cacheTitle(strippedQuery, resolved.title)
+            resolved.title
         }
 
         AnikotoLog.i("SmartSearch: searching AniKoto for \"$title\" (page $page)")
@@ -745,20 +753,27 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             //   the megaplay "enc" AES blob — decrypted by MegaPlayDecrypt, session 52).
             //   vidwish.live's data-id is audio-specific, so both endpoints return the
             //   correct audio. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §4.
+            // ★ session 56: match ANY megaplay domain (megaplay.buzz, megaplay-1.buzz, ... —
+            //   a second domain is already referenced by the player's analytics beacon) and
+            //   FALL BACK to generic Flow A for unknown hosts instead of skipping them:
+            //   every player the site has used for years shares the same iframe+data-id+
+            //   getSources shape, so an unknown host is far more likely to work with
+            //   resolveVidTube than to be something exotic. Failed attempts return null
+            //   exactly as before (server just doesn't appear), but now with a chance.
             val host = iframeUrl.substringAfter("://").substringBefore("/")
             val hosterName = task.label.substringAfter(" - ")
             val result = when {
-                host.contains("vidtube.site") || host.contains("megaplay.buzz") || host.contains("vidwish.live") -> {
-                    AnikotoLog.d("resolveStreamForTask: ${task.label} -> Flow A (VidTube), host=$host")
-                    extractors.resolveVidTube(iframeUrl, task.audioType, hosterName)
-                }
                 host.contains("mewcdn.online") -> {
                     AnikotoLog.d("resolveStreamForTask: ${task.label} -> Flow B (Kiwi), host=$host")
                     extractors.resolveKiwi(iframeUrl, task.audioType, hosterName)
                 }
                 else -> {
-                    AnikotoLog.w("resolveStreamForTask: ${task.label} — UNKNOWN host=$host, skipping")
-                    null
+                    if (!host.contains("megaplay") && !host.contains("vidtube.site") && !host.contains("vidwish.live")) {
+                        AnikotoLog.w("resolveStreamForTask: ${task.label} — unknown host=$host, attempting generic Flow A")
+                    } else {
+                        AnikotoLog.d("resolveStreamForTask: ${task.label} -> Flow A (VidTube), host=$host")
+                    }
+                    extractors.resolveVidTube(iframeUrl, task.audioType, hosterName)
                 }
             }
             if (result == null) {
@@ -863,8 +878,10 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ── Filters ──────────────────────────────────────────────────────────
     override fun getFilterList(): AnimeFilterList {
-        // ★ session 51: Pre-warm the Google WebView when the search page opens.
-        if (smartSearchEnabled) {
+        // ★ session 51/56: Pre-warm the Google WebView when the search page opens —
+        // only when the selected engine actually uses it (Gemini-only setup skips it).
+        val engine = settings.smartSearchEngine
+        if (smartSearchEnabled && (engine == SmartSearch.Engine.AUTO || engine == SmartSearch.Engine.GOOGLE)) {
             smartSearch.warmUp()
         }
         return AnikotoFilters.get()

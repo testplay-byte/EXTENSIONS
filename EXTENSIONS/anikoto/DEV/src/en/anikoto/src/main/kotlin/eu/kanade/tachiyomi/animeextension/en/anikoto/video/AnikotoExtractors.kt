@@ -70,21 +70,22 @@ class AnikotoExtractors(
      * CDN's MASTER m3u8 rejects non-browser TLS (openresty 403 to OkHttp — verified live;
      * Chrome passes, and the same host's variants + subtitles DO work with a Referer).
      * The site's player selects the CDN via the `s=` query param, which its
-     * newclient.min.js appends to every getSources call: `?s=tcdn` → megap.shiora.*
-     * (OkHttp-friendly, used by the site's own HD-1 server).
+     * newclient.min.js appends to every getSources call.
      *
-     * Strategy: for each `s` candidate ([sParam] from the iframe URL, then "tcdn", then
-     * none) × [getSourcesNew, getSources]: fetch, parse (plaintext OR enc), then VERIFY
-     * the master m3u8 is actually fetchable — the first verified combo wins. WebView
-     * (Chrome TLS) is the last-resort master fetcher. This self-corrects against future
-     * CDN rotation without hardcoding hosts.
+     * ★ session 56: `tcdn` is NO LONGER reliably fetchable (403s at the master, verified
+     * live) and megaplay's current selector set is {tcdn, bcdn} — the player's own inline
+     * bypass-check (`"tcdn"!==s&&"bcdn"!==s`) names the valid selectors. Hardcoding one
+     * selector broke Vidstream-2 (its iframe carries NO `s=` param → we tried stale tcdn
+     * → 403 → server vanished from the UI while HD-2, which ships ?s=bcdn, survived).
+     *
+     * Strategy: iterate DYNAMICALLY DISCOVERED `s` candidates ([sCandidates] — built in
+     * [resolveVidTube] from the iframe URL, the iframe page's own selector whitelist, and
+     * known fallbacks) × [getSourcesNew, getSources]: fetch, parse (plaintext OR enc),
+     * then VERIFY the master m3u8 is actually fetchable — the first verified combo wins.
+     * WebView (Chrome TLS) is the last-resort master fetcher. This self-corrects against
+     * future CDN rotation without hardcoding hosts.
      */
-    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String, sParam: String?): SourcesData? {
-        val sCandidates = buildList {
-            if (!sParam.isNullOrBlank()) add(sParam)
-            add("tcdn") // HD-1's CDN — currently megap.shiora.*, verified OkHttp-friendly
-            add("")     // default CDN — works in browsers; kept for future-proofing
-        }.distinct()
+    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String, sCandidates: List<String>): SourcesData? {
         for (s in sCandidates) {
             val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
             // Attempt 1: getSourcesNew (the player's newclient.min.js rewrites
@@ -189,6 +190,7 @@ class AnikotoExtractors(
             // Step 1: GET iframe page → extract data-id
             AnikotoLog.d("resolveVidTube: [1/5] GET iframe page: ${AnikotoLog.trunc(iframeUrl, 80)}")
             val pageHtml = fetchString(iframeUrl, vidtubePageHeaders(host))
+            // ★ session 56: pageHtml is reused below for CDN-selector discovery — keep it in scope.
             val dataId = DATA_ID_REGEX.matcher(pageHtml).takeIf { it.find() }?.group(1)
             if (dataId == null) {
                 AnikotoLog.e("resolveVidTube: no data-id found in iframe HTML (len=${pageHtml.length})")
@@ -212,9 +214,22 @@ class AnikotoExtractors(
                 .firstOrNull { it.startsWith("s=") }
                 ?.substringAfter('=')
                 ?.takeIf { it.isNotBlank() }
-            val sourcesData = fetchSourcesData(host, dataId, audioType, sParam)
+            // ★ session 56: discover ALL valid CDN selectors instead of hardcoding one.
+            // Priority: (1) the iframe URL's own s= — the site's own player chose it;
+            // (2) selectors named in the iframe page's bypass-check ("X"!==s pattern —
+            //     megaplay whitelists its CDN ids there, e.g. tcdn/bcdn — self-updating);
+            // (3) s= links found anywhere in the page; (4) known fallbacks + none.
+            val sCandidates = buildList {
+                if (!sParam.isNullOrBlank()) add(sParam)
+                for (m in Regex("\"([a-z0-9_]{2,12})\"!==s").findAll(pageHtml)) add(m.groupValues[1])
+                for (m in Regex("[?&]s=([a-z0-9_]{2,12})").findAll(pageHtml)) add(m.groupValues[1])
+                add("bcdn") // session 56: currently the OkHttp-friendly CDN (ncdn.imgnex.top)
+                add("tcdn") // session 54 CDN — started 403ing 2026-09-13; kept for rotation
+                add("")     // default CDN — works in browsers; kept for future-proofing
+            }.distinct().take(6)
+            val sourcesData = fetchSourcesData(host, dataId, audioType, sCandidates)
             if (sourcesData == null) {
-                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host, sParam=$sParam)")
+                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host, sCandidates=$sCandidates)")
                 return null
             }
             val masterM3u8 = sourcesData.masterM3u8
@@ -396,11 +411,15 @@ class AnikotoExtractors(
                     val resStr = Regex("RESOLUTION=(\\d+)x(\\d+)").find(line)?.groupValues?.get(2) ?: ""
                     val name = Regex("""NAME="([^"]+)"""").find(line)?.groupValues?.get(1)
                     val resolution = resStr.toIntOrNull() ?: 0
-                    // ★ If NAME is missing, derive quality from RESOLUTION (e.g., "720" → "720p")
+                    // ★ session 56: RESOLUTION is the ground truth — megaplay's playlist ships
+                    // mislabeled NAMEs (verified live: RESOLUTION=640x360 NAME="480p"), and the
+                    // site's own player displays the RESOLUTION height (hls.js level height),
+                    // which is why the app showed 480p while the site showed 360p.
+                    // Prefer RESOLUTION; fall back to NAME only when RESOLUTION is missing.
                     val quality = when {
-                        !name.isNullOrBlank() && name != "Unknown" -> name
                         resolution > 0 -> "${resolution}p"
-                        else -> "Unknown"
+                        !name.isNullOrBlank() && name != "Unknown" -> name
+                        else -> "auto"
                     }
                     val url = if (nextLine.startsWith("http")) nextLine else base + nextLine
                     variants.add(VariantInfo(url, bandwidth, quality, resolution))

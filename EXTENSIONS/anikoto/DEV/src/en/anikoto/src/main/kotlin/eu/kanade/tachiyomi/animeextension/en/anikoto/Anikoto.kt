@@ -202,6 +202,27 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     /**
+     * ★ session 57: Copy debug text to the clipboard (runs on the main thread).
+     * Used to hand the raw engine response to the user when smart search fails,
+     * so the failure can be diagnosed by simply pasting the clipboard contents.
+     * @return true if the text was placed on the clipboard.
+     */
+    private suspend fun copyToClipboard(text: String): Boolean = try {
+        val app = Injekt.get<Application>()
+        withContext(Dispatchers.Main) {
+            val cm = app.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                as android.content.ClipboardManager
+            cm.setPrimaryClip(
+                android.content.ClipData.newPlainText("AniKoto smart search response", text),
+            )
+        }
+        true
+    } catch (e: Exception) {
+        AnikotoLog.e("SmartSearch: clipboard copy failed", e)
+        false
+    }
+
+    /**
      * ★ session 51/56: Override getSearchAnime to intercept smart search queries.
      *
      * If smart search is triggered (toggle ON + phrase matches):
@@ -241,9 +262,17 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
                 settings.geminiModel,
             )
             if (resolved !is SmartSearch.ResolveResult.Success) {
-                val why = (resolved as SmartSearch.ResolveResult.Failure).userMessage
-                AnikotoLog.w("SmartSearch: resolution FAILED — $why")
-                showToast("Smart search failed: $why")
+                val failure = resolved as SmartSearch.ResolveResult.Failure
+                AnikotoLog.w("SmartSearch: resolution FAILED — ${failure.userMessage}")
+                // ★ session 57: copy the raw engine response to the clipboard so failures
+                // can be debugged anywhere by pasting it (user request for testing).
+                var message = "Smart search failed: ${failure.userMessage}"
+                failure.detail?.takeIf { it.isNotBlank() }?.let { raw ->
+                    if (copyToClipboard(raw.take(20_000))) {
+                        message += " (raw response copied to clipboard)"
+                    }
+                }
+                showToast(message)
                 return super.getSearchAnime(page, query, filters)
             }
             smartSearch.cacheTitle(strippedQuery, resolved.title)

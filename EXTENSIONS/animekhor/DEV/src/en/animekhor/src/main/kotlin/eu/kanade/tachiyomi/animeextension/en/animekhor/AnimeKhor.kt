@@ -79,7 +79,7 @@ class AnimeKhor : AnimeHttpSource(), ConfigurableAnimeSource {
         add("Referer", "$baseUrl/")
     }
 
-    private fun String.orNull() = this.takeIf { it.isNotBlank() }
+    private fun String?.orNull(): String? = this?.takeIf { it.isNotBlank() }
 
     private fun String.toAbsoluteUrl(): String = when {
         startsWith("http") -> this

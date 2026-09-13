@@ -21,7 +21,7 @@ import org.jsoup.Jsoup
  */
 class StreamWishExtractor(private val client: OkHttpClient, private val headers: Headers) {
 
-    fun videosFromUrl(url: String, prefix: String = "StreamWish - "): List<Video> = runCatching {
+    fun videosFromUrl(url: String, videoNameGen: (String) -> String = { q -> "StreamWish - $q" }): List<Video> = runCatching {
         val response = client.newCall(GET(url, headers)).execute()
         if (!response.isSuccessful) return emptyList()
         val body = response.body.string()
@@ -46,7 +46,7 @@ class StreamWishExtractor(private val client: OkHttpClient, private val headers:
         playlistUtils.extractFromHls(
             playlistUrl = masterUrl,
             referer = referer,
-            videoNameGen = { q -> "$prefix$q" },
+            videoNameGen = videoNameGen,
             subtitleList = playlistUtils.fixSubtitleUrls(subtitleList, masterUrl),
         )
     }.getOrDefault(emptyList())

@@ -38,6 +38,7 @@ class PlaylistUtils(private val client: OkHttpClient, private val headers: Heade
                 .firstOrNull { it.startsWith("#EXT-X-STREAM-INF") }
                 ?.substringAfter("RESOLUTION=")?.substringAfter("x")?.substringBefore(",")?.plus("p")
                 ?: guessQualityFromUrl(playlistUrl)
+                ?: "source"
             return listOf(
                 Video(
                     videoUrl = playlistUrl,

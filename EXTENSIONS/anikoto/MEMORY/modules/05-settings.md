@@ -1,7 +1,10 @@
 # Module: Settings
 
-> Last updated: 2026-09-09 (session 52) · Status: VERIFIED
+> Last updated: 2026-09-13 (session 58) · Status: VERIFIED
 > Covers: preference keys, defaults, typed getters, and the settings UI.
+> ★ v16.12 current spec: Smart Search default **ON**, engine default **Google search**,
+> 5 categories (Playback, Servers, Episode metadata, Smart Search, **Details**).
+> The authoritative Smart Search settings table lives in `06-smart-search.md` § "Settings (current, v16.12)".
 
 ---
 
@@ -75,13 +78,19 @@ When OFF, the mapper API (`mapper.nekostream.site`) is not called — no Kiwi-St
 
 If ALL three are OFF, the metadata fetcher is skipped entirely — zero API calls, zero latency.
 
-### Category 4: Smart Search (★ session 51)
+### Category 4: Smart Search (★ session 51, overhauled s57/s58 — CURRENT DEFAULTS SHOWN)
 
 | Setting | Key | Type | Default | Summary |
 |---------|-----|------|---------|---------|
-| Enable smart search | `pref_smart_search` | SwitchPreferenceCompat | `false` (OFF) | ON: "AI resolves descriptive queries and corrects spelling" / OFF: "Smart search disabled (normal keyword search only)" |
+| Smart Search | `pref_smart_search` | SwitchPreferenceCompat | **`true` (ON)** | ON: "AI resolves descriptive queries and corrects spelling" / OFF: "Smart search disabled (normal keyword search only)" |
+| AI engine | `pref_smart_engine` | ListPreference | **`google`** | Google search / Gemini API |
 | Activation phrase | `pref_smart_search_phrase` | EditTextPreference | `"?"` | "Currently: ?" (red bold text via SpannableString) |
-| Details | (info only) | Preference | — | Dynamic examples using user's actual phrase |
+| Copy response | `pref_smart_copy_response` | SwitchPreferenceCompat | **`false` (OFF)** | Bottom of the section; auto-copies query+result (success) or query+error+raw response (failure) |
+| Gemini API key / model / custom model / Test connection | see `06-smart-search.md` | — | key: empty · model: **Gemini 3.1 Flash Lite** | Only visible when engine = Gemini API |
+| Details | (info only) | PreferenceCategory | — | User's exact usage text with the live phrase substituted (5th category) |
+
+> Full current spec (models list, conditional visibility, Test connection, Copy response
+> behavior): **`06-smart-search.md` § "Settings (current, v16.12)"**.
 
 **Smart Search behavior:**
 - **Toggle OFF** → normal keyword search only

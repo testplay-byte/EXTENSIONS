@@ -91,14 +91,23 @@ case) before building.
   session 47 (`fix-r8-serialization-and-settings`).
 - After CI: verify DEX contains the new symbols (WORKFLOW.md Phase 3.5).
 
-## Current open items (as of session 55, 2026-09-13)
+## Current open items (CLOSE-OUT state, session 58, 2026-09-13)
 
-- All four reported issues (playback, in-app download/version, website, icon) resolved and
-  published through **v16.11** (sessions 52–54).
+**★ NOTHING OPEN — the user closed the project in a fully working state** (v16.12 RELEASE,
+user-confirmed: server detection ✅, 360p ✅, Smart Search both engines ✅, Test connection ✅,
+settings/defaults ✅). Work resumes only when something breaks.
+
+- Published through **v16.12** (sessions 52–58): playback chain, in-app update path, website,
+  icon, Smart Search — all working at close.
 - Kiwi-Stream streaming hosters remain gone (site-side change; needs new resolver if wanted).
-- megaplay CDN rotation may recur — §1 stage 9 pattern is the countermeasure; v16.11's
-  candidate-loop design self-corrects as long as `tcdn` (or equivalent) keeps existing.
-- scrapegraphai/scrapling: installed + researched, **awaiting user's go** for integration.
+- megaplay CDN rotation may recur — §1 stage 9 pattern is the countermeasure; the s56
+  candidate-discovery design self-corrects as long as `tcdn`/`bcdn`-style selectors keep existing.
+- scrapling = proven core diagnostic tool (sessions 56–58). scrapegraphai = installed and
+  mechanically sound, but its LLM backend stays geo-blocked from this sandbox — situational
+  only (TOOLS.md §5–§6).
+- Smart Search watchpoints for next time: Google 429 CAPTCHA (flaky per datacenter /16 — pace
+  probes), AI Mode layout changes (extractor has S0–S7 fallbacks), Gemini geo-blocked keys
+  (classify FAILED_PRECONDITION explicitly — it means the payload was VALID).
 
 ## §7 (session 56) "Only one server shows" — the `s=` selector class of bugs
 

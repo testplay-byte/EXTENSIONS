@@ -31,7 +31,7 @@ EXTENSIONS/<name>/
 
 | Extension | Folder | Status | Latest version |
 |---|---|---|---|
-| AniKoto 180 | `anikoto/` | ✅ All features working | v16.9, Build 7 |
+| AniKoto 180 | `anikoto/` | ✅ All features working | v16.12, Build 12 |
 | AnimePahe 180 | `animepahe/` | ✅ All features working | v16.10, Build 10 |
 
 See `../MEMORY/EXTENSIONS.md` for the full project-wide registry.

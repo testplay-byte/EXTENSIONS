@@ -1,7 +1,7 @@
 # AniKoto 180 — Extension APK Information Sheet
 
-> Generated: 2026-06-26 (session 49) · Updated: 2026-09-09 (session 52) · By: Confused_Creature (180)
-> Current version: v16.10 (versionCode=10)
+> Generated: 2026-06-26 (session 49) · Updated: 2026-09-13 (session 58) · By: Confused_Creature (180)
+> Current version: v16.12 (versionCode=12) — RELEASE, published 2026-09-13
 
 ---
 
@@ -9,12 +9,13 @@
 
 | Property | Value |
 |----------|-------|
-| **File name** | `aniyomi-en.anikoto180-v16.10-release.apk` |
-| **File size** | ~255 KB |
-| **MD5** | `524c91799b7a33f56a2753678c546eee` |
+| **File name** | `aniyomi-en.anikoto180-v16.12-release.apk` |
+| **File size** | 286,691 B (~280 KB) |
+| **MD5** | `4aedb187c7afd83a5fad6ce103102823` |
+| **SHA-256 (file)** | `e014d92dfbbf37d13e1b2798984801ecd9ef15fc6da5007277c1faa113dfeee1` |
 | **App label** | AniKoto 180 |
 | **Package name** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` |
-| **Version** | `16.9` (versionCode=9) |
+| **Version** | `16.12` (versionCode=12) |
 | **Extension versionId** | `11` (STABLE — do NOT change) |
 | **Extension class** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` (FULL path, no leading dot) |
 | **ext-lib version** | 16 (versionName must start with "16.") |
@@ -126,7 +127,9 @@ This ID is derived from the extension **name** (lowercase), **language**, and **
 - DUB (dubbed)
 
 ### Resolutions
-- 1080p, 720p, 480p, 360p (availability depends on the anime)
+- 1080p, 720p, 360p (availability depends on the anime)
+- Quality labels derive from the master-m3u8 `RESOLUTION=WxH` attribute (s56 fix — playlists
+  can lie, e.g. `RESOLUTION=640x360 NAME="480p"` is labeled 360p).
 
 ### Episode Metadata Enrichment
 Multi-source fetching (all toggleable in settings, all default ON):
@@ -134,9 +137,10 @@ Multi-source fetching (all toggleable in settings, all default ON):
 - **Titles**: Jikan (MyAnimeList) → Anikage → Kitsu — format: "EP N - title"
 - **Descriptions**: Anikage → Kitsu
 
-### Settings (3 categories)
+### Settings (5 categories)
 **Playback:**
-- Preferred quality (1080p/720p/480p/360p) — shows "Currently: %s"
+- Preferred domain (6 verified mirrors) — shows "Currently: %s"
+- Preferred quality (1080p/720p/360p) — shows "Currently: %s"
 - Preferred audio (Sub/Dub/Hardsub) — shows "Currently: %s"
 - Pre-fetch buffer (10%/20%/30%/50%/100%) — shows "Currently: %s"
 - Preferred server (Auto/VidPlay-1/HD-1/Vidstream-2/VidCloud-1/Kiwi-Stream) — shows "Currently: %s"
@@ -145,9 +149,19 @@ Multi-source fetching (all toggleable in settings, all default ON):
 - Enable Kiwi-Stream (ON/OFF, default ON) — gates the mapper API call
 
 **Episode metadata:**
-- Load episode thumbnails (ON/OFF, default ON)
-- Load episode titles (ON/OFF, default ON)
-- Load episode descriptions (ON/OFF, default ON)
+- Load episode thumbnails / titles / descriptions (ON/OFF, default ON each)
+
+**Smart Search (s56–s58; ON by default, engine = Google AI Search):**
+- Smart Search master toggle (default ON)
+- Activation phrase (default `?`; case-insensitive, must be followed by a space; empty = always AI)
+- AI engine: Google search / Gemini API
+- Gemini API key (user's own key; stored in preference, never shipped)
+- Gemini model: **Gemini 3.1 Flash Lite (default, top)** / Gemini 3.5 Flash Light / Gemini 3.8 Flash / Custom model ID
+- Test connection (validates key + model with a real generateContent call)
+- **Copy response** (default OFF; bottom of the section) — auto-copies query+result on success, query+error+raw response on failure
+
+**Details:**
+- Usage instructions (activation-phrase text with the live phrase substituted + examples + latency note)
 
 ### Promotional Credit
 Every anime's description ends with:
@@ -188,8 +202,9 @@ Thank the Confused_creature_180
 | R8 obfuscation | Active (internal classes obfuscated, extension classes kept) ✅ |
 | Icons | 5 densities (mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi) ✅ |
 | "Thank the Confused_creature_180" | Present ✅ |
-| 3 settings categories (Playback, Servers, Episode metadata) | Present ✅ |
-| "Currently: %s" on all 4 dropdowns | Present ✅ |
+| 5 settings categories (Playback, Servers, Episode metadata, Smart Search, Details) | Present ✅ |
+| "Currently: %s" on all dropdowns | Present ✅ |
+| v16.12 Smart Search strings (`wrap the anime title in`, `Copy response`, `gemini-3.1-flash-lite`, `Your phrase`, `Query: `) | Present ✅ (session 58 dex check) |
 
 ---
 
@@ -205,36 +220,30 @@ Thank the Confused_creature_180
 | Filters | `.../anikoto/AnikotoFilters.kt` |
 | Logger | `.../anikoto/AnikotoLog.kt` |
 | DTOs | `.../anikoto/AnikotoDto.kt` |
+| Smart search | `.../anikoto/smartsearch/` — SmartSearch.kt (dual engine, bracket convention) |
 | Stubs module | `EXTENSIONS/anikoto/DEV/stubs/` |
 | Build config | `EXTENSIONS/anikoto/DEV/src/en/anikoto/build.gradle.kts` |
 | Manifest | `EXTENSIONS/anikoto/DEV/common/AndroidManifest.xml` |
 | ProGuard rules | `EXTENSIONS/anikoto/DEV/common/proguard-rules.pro` |
 | Keystore | `EXTENSIONS/anikoto/DEV/anikoto-release.jks` |
 | Keystore info | `EXTENSIONS/anikoto/DEV/keystore-info.txt` |
-| Env script | `/home/z/my-project/.android-env.sh` |
 
 ---
 
 ## Build Commands
 
+> ⚠️ **All builds happen on GitHub Actions** (`testplay-byte/EXTENSIONS` → `release.yml`).
+> NEVER install the Android SDK in a sandbox (no space). The gradle commands below are
+> historical reference only.
+
 ```bash
-# Set up environment (every new shell)
-source /home/z/my-project/.android-env.sh
+# Test build: dispatch release.yml with {tag: v16.X, publish: false} → artifact only
+# Release: tag v16.X → CI builds + creates the GitHub Release
+# Full recipe: EXTENSIONS/anikoto/AGENT_ONBOARDING.md §5–§6
 
-cd /home/z/my-project/EXTENSIONS/anikoto/DEV
-
-# Build debug APK (for testing — no R8, easier logs)
-./gradlew :src:en:anikoto:assembleDebug --no-daemon
-# → src/en/anikoto/build/outputs/apk/debug/aniyomi-en.anikoto180-v16.9-debug.apk (~302KB)
-
-# Build signed release APK (for publishing — R8 minified + signed)
-./gradlew :src:en:anikoto:assembleRelease --no-daemon
-# → src/en/anikoto/build/outputs/apk/release/aniyomi-en.anikoto180-v16.9-release.apk (~255KB)
-
-# Verify signing
-$ANDROID_HOME/build-tools/34.0.0/apksigner verify --verbose --print-certs \
-  src/en/anikoto/build/outputs/apk/release/aniyomi-en.anikoto180-v16.9-release.apk
-# Should show: Verifies, v1+v2 true, SHA-256 b467ca64...
+# Verify a built APK's signature locally (no SDK build needed):
+keytool -printcert -jarfile aniyomi-en.anikoto180-v16.12-release.apk | grep SHA256
+# Should show: B4:67:CA:64:0B:A7:...:6A:5A
 ```
 
 ---
@@ -259,4 +268,4 @@ $ANDROID_HOME/build-tools/34.0.0/apksigner verify --verbose --print-certs \
 
 ---
 
-*This document contains all critical information about the AniKoto 180 extension APK v16.9. Keep it with the keystore backup.*
+*This document contains all critical information about the AniKoto 180 extension APK v16.12. Keep it with the keystore backup.*

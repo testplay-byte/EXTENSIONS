@@ -14,3 +14,19 @@ Work Log:
 
 Stage Summary:
 - v16.12 RELEASE is LIVE (index code 12 / version 16.12). Both user-reported bugs fixed with hard evidence; all UI changes per the user's verbatim spec. Testers on the v16.13 test build must sideload 16.12 manually (13 > 12 so no in-app update prompt).
+
+---
+Task ID: anikoto-session-59
+Agent: Main Agent (Z.ai Code)
+Task: CLOSE-OUT per user ("everything is working… stopping here… let's meet again when something breaks") — verify GitHub backup, finalize all documentation, guarantee next-agent startup readiness, ntfy.
+
+Work Log:
+- Verified backup end-to-end: dev repo main == origin (31bc0bb); dist repo repo/main == origin (0ff5f25 / 8cb181d, clean); v16.12 Releases on both repos; index.min.json code 12 live; secrets not tracked in git.
+- Fixed every stale "START HERE" doc to v16.12 facts: EXTENSION.md (identity/hashes, GH-Actions-only build, session-58 status, 5 categories), APK_INFO.md (v16.12 sheet w/ MD5+SHA256, full Smart Search + Details settings), EXTENSIONS/README.md + repo-root MEMORY/EXTENSIONS.md registries (v16.12 Build 12).
+- Module docs: 05-settings.md corrected (Smart Search default ON, engine google, Copy response, pointer to 06's current spec), 06-smart-search.md header bumped (content already s58-current).
+- Workflow folder: REFERENCE.md current-facts → code 12/16.12 + 16.12 release-history row + release-chain line + v16.13-sideload warning; TROUBLESHOOTING.md open-items → CLOSE-OUT state (nothing open) + next-time watchpoints; WORKFLOW.md header + Golden-Rule-6 number-reuse exception; README.md step 0 = committed AGENT_ONBOARDING.md entry point. All 5 files re-synced byte-identical to MEMORY/workflow/sandbox/.
+- Wrote session log 59 (close-out) + this worklog entry + repo-root worklog.
+- Sent ntfy THE-TASK-IS-DONE close-out ping.
+
+Stage Summary:
+- Project CLOSED in fully working state: v16.12 RELEASE live, everything user-confirmed, all docs at v16.12 facts, backup verified. Next agent: clone → EXTENSIONS/anikoto/AGENT_ONBOARDING.md → MEMORY/workflow/ → latest session logs.

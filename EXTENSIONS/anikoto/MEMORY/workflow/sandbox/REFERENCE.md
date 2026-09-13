@@ -12,8 +12,8 @@
 | Name | AniKoto 180 | |
 | Package | `eu.kanade.tachiyomi.animeextension.en.anikoto180` | NEVER rename again (orphaned libraries) |
 | Source ID | `178825880993122333` | NEVER change (derived from `extVersionId = 11`, which stays fixed) |
-| `extVersionCode` | **11** (v16.11) | Bump by +1 on every release |
-| Display version | `16.11` | `extVersionName` (grep build.gradle.kts) |
+| `extVersionCode` | **12** (v16.12) | Bump by +1 on every release (★ exception s58: user may reuse a test-build number — test numbers are NOT reserved) |
+| Display version | `16.12` | `extVersionName` (grep build.gradle.kts) |
 | Signing cert SHA256 | `B4:67:CA:…:6A:5A` | Must equal repo.json `signingKeyFingerprint`; identical cert ⇒ in-place update, no uninstall |
 | Logcat tag | `Anikoto` | `adb logcat -s Anikoto` for user log captures |
 
@@ -24,9 +24,13 @@
 | 16.9 | 9 | baseline | 268,142 | — |
 | 16.10 | 10 | megaplay AES decrypt (`MegaPlayDecrypt`, key `i?LMTAx0Q6,:}50U` / IV `W0;27ToaUpl_P%'c`) + `getSourcesNew` fallback + 6-domain preferred-domain setting | 270,953 | `aab6ead4bf41…86ce4` |
 | 16.11 | 11 | megaplay CDN rotation: pass `s=` selector (`tcdn` candidates loop) + **master-m3u8 fetch verification** (`fetchAndVerifySources`) + WebView last resort | 273,044 | `c735f4927ee6…b0346` |
+| 16.12 | 12 | s56: server-tolerant dispatch + RESOLUTION-based quality labels; s57/58: Smart Search v2 — `[{[Title]}]` bracket convention on BOTH engines (lenient S0 + S1–S7), Test-connection fix (thinkingConfig only for gemini-2.5*), model list (3.1 Flash Lite default/top), defaults (Smart Search ON, engine google), "Copy response" toggle | 286,691 | `e014d92dfbbf…dfeee1` |
 
 - v16.11: dev commit `c1ed16a`, tag `v16.11`, Actions run **34755207560 SUCCESS**,
   dist repo `repo` branch `feff049`, `main` branch `e4f160d`, distro GitHub Release `v16.11` (id 387885432).
+- v16.12 (RELEASE, session 58): dev commit `1153651`, tag `v16.12`, Actions run **34767453979 SUCCESS**,
+  dist repo `repo` branch `0ff5f25`, `main` branch `8cb181d`, distro GitHub Release `v16.12`.
+  ⚠️ Devices on the v16.13 TEST build (code 13) never get 16.12 in-app (13 > 12) — they sideload it.
 - **All previous APKs stay published** (see TROUBLESHOOTING §2 — never delete old APKs).
 
 ## 3. Repos & paths
@@ -43,8 +47,9 @@
   `video/AnikotoExtractors.kt` (megaplay chain, `MegaPlayDecrypt`, `fetchAndVerifySources`) ·
   `video/LocalProxyServer.kt` (PNG-strip proxy) · `video/WebViewFetcher.kt` ·
   `smartsearch/SmartSearch.kt` · `metadata/EpisodeMetadataFetcher.kt`
-- Build: `cd EXTENSIONS/anikoto/DEV && ./gradlew assembleRelease` (local) — but **releases are
-  built by GitHub Actions** on tag push `v16.x` (workflow creates the GitHub Release + APK asset)
+- Build: **GitHub Actions ONLY** (`release.yml`) — tag push `v16.x` (release) or workflow_dispatch
+  with `publish=false` (test build → artifact only). NEVER install the Android SDK in a sandbox.
+  Local sanity tool: tree-sitter Kotlin parse (TOOLS.md §5).
 - Version bump location: `DEV/src/en/anikoto/build.gradle.kts` (`extVersionCode`, `extVersionName`)
 
 ### Distribution repo (publish target — "handle with care", minimal diffs)
@@ -191,3 +196,11 @@
   error shape itself proves the user key AUTHENTICATES — location check happens after auth).
 - **v16.13 = code 13**, commit `47c0b0e`, NO tag/release; artifact-only Actions dispatch.
 - Sandbox Google probing got IP-CAPTCHA-walled after ~8 udm=50 fetches in 30 min — go easy.
+- v16.13 build verified: Actions run 34764034178 (workflow_dispatch tag=v16.13 publish=false)
+  SUCCESS on FIRST run (tree-sitter pre-check worked — zero compile iterations).
+  Artifact `test-build-apks-v16.13` (id 10320012606) →
+  `/home/z/apk-staging/test-build-v16.13/aniyomi-en.anikoto180-v16.13-release.apk`,
+  285,456 bytes, sha256 `7a67a3a1a53821ed…c60e8e070`. DEX markers verified (all model ids,
+  new settings strings, clipboard message, extractor regexes). Same CI cert → in-place update.
+  NOTE: repo also has a "Build (CI)" push-triggered workflow (debug-apks artifact) — harmless,
+  unrelated to Release.

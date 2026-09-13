@@ -1,9 +1,10 @@
 # WORKFLOW.md — AniKoto 180 maintenance: start → finish (including publishing)
 
-> The exact process that produced v16.10 (session 52–53) and v16.11 (session 54), written
-> down so any future session reproduces it identically. Follow phases in order; don't skip
-> verification steps. Companion docs: `REFERENCE.md` (facts/paths), `TROUBLESHOOTING.md`
-> (per-issue playbooks), `TOOLS.md` (scrapling/scrapegraphai), `SECRETS.md` (tokens).
+> The exact process that produced v16.10 (session 52–53), v16.11 (session 54) and the v16.12
+> Smart Search release (sessions 56–58), written down so any future session reproduces it
+> identically. Follow phases in order; don't skip verification steps. Companion docs:
+> `REFERENCE.md` (facts/paths), `TROUBLESHOOTING.md` (per-issue playbooks), `TOOLS.md`
+> (scrapling/scrapegraphai), `SECRETS.md` (tokens).
 
 ---
 
@@ -18,6 +19,8 @@
 4. **Distribution repo = surgical commits only** ("handle with care"). Dev repo = free.
 5. **Verify live before AND after** every publish (curl matrix, sha256, signature).
 6. **Bump `extVersionCode` on every release**; display version = `16.x` matching tag `v16.x`.
+   (★ Exception, session 58: the user may explicitly REUSE a test-build number for a release —
+   test numbers are NOT reserved; 16.12 was published after test builds 16.12/16.13.)
 7. **Ground truth beats theory**: diagnose with real requests (curl/python replay of the app's
    exact chain), not assumptions. LLM tools assist, never decide (TOOLS.md §4).
 8. **Fresh browser contexts + cache-bust** when checking the Pages site; raw.githubusercontent

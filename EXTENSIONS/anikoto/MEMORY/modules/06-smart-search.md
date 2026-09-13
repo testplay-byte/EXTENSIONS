@@ -1,7 +1,8 @@
 # Module: Smart Search
 
-> Last updated: 2027-06-27 (session 51) · Status: VERIFIED
-> Covers: AI-powered search via Google AI Search, activation phrase, title extraction, fallback logic.
+> Last updated: 2026-09-13 (session 58) · Status: VERIFIED
+> Covers: AI-powered dual-engine search (Google AI Search + Gemini API), activation phrase,
+> `[{[Title]}]` bracket title convention, title extraction strategies, Gemini request rules.
 
 ---
 

@@ -6,6 +6,9 @@
 
 ## Reading order (for a new session)
 
+0. **★ Fresh sandbox / new agent?** First clone the dev repo and read
+   `EXTENSIONS/anikoto/AGENT_ONBOARDING.md` — that committed file is the always-available
+   entry point (this folder is sandbox-local and may not exist after a reset).
 1. **`WORKFLOW.md`** — the master process: restore → triage → diagnose → fix & build →
    **publish** → verify → memory + ntfy. Start here, follow the phases.
 2. **`REFERENCE.md`** — hard facts you must never get wrong (IDs, URLs, versions, signing cert,

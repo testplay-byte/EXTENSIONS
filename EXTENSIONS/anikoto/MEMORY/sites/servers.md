@@ -172,3 +172,31 @@ GET https://vibeplayer.site/public/stream/e90424f29ec81ddc/master.m3u8
 > ⚠️ **Kiwi-Stream audio mapping:** mapper's `sub` = HSUB, mapper's `dub` = DUB. Label accordingly in the extension.
 
 > ⚠️ **No `getSourcesNew` call for Kiwi** — the m3u8 is directly in the resolved URL's base64 fragment. Just decode it.
+
+---
+
+## ⚠️ Session-60 addendum (2026-09-17) — SERVER LINEUP ROTATED (verified live, Exiled Heavy Knight ep-11/ep-12)
+
+The table above documents the session-12 lineup (VidPlay-1 / HD-1 / Vidstream-2 / VidCloud-1 / Kiwi-Stream).
+**The site has since rotated server names.** Current lineup on recently-updated series:
+
+| Server entry | Player host / path | Notes |
+|---|---|---|
+| `Vidstream-2` | `megaplay.buzz/stream/s-2/{epId}/{audio}` | NO `s=` param on iframe |
+| `Vidstream-1beta` (NEW) | `megaplay.buzz/videojs/stream/s-2/{epId}/{audio}` | NO `s=` param; /videojs/ player skin |
+| `HD-2` | `megaplay.buzz/stream/s-2/{epId}/{audio}?s=bcdn` | carries its own `s=bcdn` |
+
+- **All three resolve to the SAME data-id per audio** (ep-12 sub: 179714) → one file behind
+  three names. Extension dedups these (v16.13+).
+- VidPlay-1 / HD-1 / VidCloud-1 / Kiwi-Stream did NOT appear for this series (Kiwi still
+  exists via the mapper on other series — PATH B unchanged).
+- **CDN map (decrypted getSources file host per `s=` candidate):**
+  - `bcdn` → `ncdn.imgnex.top` — master 200 / variants 200 / segments 200 via plain
+    OkHttp-class TLS (segments land on `bb.akirax.buzz`, raw MPEG-TS, NOT PNG-wrapped).
+  - `tcdn` / default (no-s) → `fetch.nexabloom.top` — MASTER 403 to non-browser TLS;
+    variant playlists on the same host ARE 200 (master-only blocking). Subtitle tracks
+    may point at random-subdomain hosts (`f0ja7.zhaevor.top`).
+- megaplay `lib/newclient.min.js?v=4.17`: AES constants UNCHANGED
+  (`i?LMTAx0Q6,:}50U` / `W0;27ToaUpl_P%'c`) — MegaPlayDecrypt still valid.
+- Server names rotate over time; the extension's bypass-regex self-discovery
+  (`"X"!==s` pattern) + candidate fallthrough (v16.13) is the durable defense.

@@ -30,3 +30,21 @@ Work Log:
 
 Stage Summary:
 - Project CLOSED in fully working state: v16.12 RELEASE live, everything user-confirmed, all docs at v16.12 facts, backup verified. Next agent: clone → EXTENSIONS/anikoto/AGENT_ONBOARDING.md → MEMORY/workflow/ → latest session logs.
+
+---
+Task ID: anikoto-session-60
+Agent: Main Agent (Z.ai Code)
+Task: User bug report — Exiled Heavy Knight ep-12 (latest) resolves NO streams; plus improve metadata fetching (some series never load), handle AniList outages gracefully; TEST BUILD only (no release).
+
+Work Log:
+- Sandbox restored from scratch: both repos cloned with fresh user PATs, workflow docs copied from repo mirror to /home/z/anikoto-workflow/, SECRETS.md rewritten, tree-sitter(+kotlin)+pycryptodome installed, git identity set.
+- Live recon (paced Python, artifacts /home/z/recon/): traced watch page → episode list → server list → per-server resolve → iframe → getSources×2 → AES decrypt → master → variant → segment for ep-12 AND ep-11. Found new server lineup (Vidstream-2, Vidstream-1beta, HD-2; VidPlay-1/HD-1/VidCloud-1 gone), all three = same megaplay data-id 179714; enc constants unchanged (newclient.min.js?v=4.17 still has i?LMTAx0Q6,:}50U / W0;27ToaUpl_P%'c); bcdn→ncdn.imgnex.top fully OkHttp-friendly (200/200/200); tcdn/default→fetch.nexabloom.top master 403 (variants fine, master-only block).
+- Root cause: v16.12 candidate loop accepted a candidate at master-stage (WebView-verified) then died on variants without trying bcdn. Post-mortem: MEMORY/issues-resolutions/05-no-streams-fresh-episodes-candidate-loop-trap.md.
+- Fixed streams: candidate loop verifies master AND variants, falls through; bcdn-first order; per-variant WebView fallback (loadVariantPlaylists); dedup identical streams; server picker refreshed.
+- Fixed metadata: no poisoned empty cache; parallel Jikan∥AniList∥Kitsu; short-timeout client (8/12/20s); AniList OkHttp-first + WebView fallback + cached-id outage degradation; Jikan 429 retry; Kitsu 8s deadline; 25s enrich ceiling.
+- Quality gate: tree-sitter parse OK ×4 files; static audit (leftover refs cleaned, nullable-dedup pattern fixed, imports verified).
+- Pushed 1b46982 to main; dispatched release.yml (tag v16.13, publish=false) → run 35263287060; artifact test-build-apks-v16.13 for the user. NO tag/Release/dist-repo changes.
+- Docs: session log 60, this worklog, post-mortem 05, sites/servers.md addendum.
+
+Stage Summary:
+- v16.13 TEST BUILD: 0-stream fresh episodes root-caused (candidate-loop trap) + fixed; metadata pipeline hardened (cache poisoning + AniList outages + timeouts); three duplicate server entries now collapse to one. Awaiting user test; release as v16.14 after confirmation.

@@ -60,6 +60,17 @@ How to avoid hitting this again.
 3. **`03-versionid-logo-bumping.md`** — Missing `versionId` meta-data, blue placeholder logo,
    and the version-bump practice established (bump `versionCode` + `versionId` on every rebuild,
    delete old APKs, record MD5). Fixed in session 15.
+4. **`04-episode-url-dns-error-in-forks.md`** — forks without the ext-lib-16 hoster pipeline
+   called legacy `getVideoList(episode)`, whose base-class implementation did
+   `GET(baseUrl + episode.url)` on encoded metadata → DNS error. Fixed by overriding
+   `getVideoList` to delegate to `getHosterList` (session 43).
+5. **`05-no-streams-fresh-episodes-candidate-loop-trap.md`** — "no resolved video streams"
+   on fresh episodes (Exiled Heavy Knight ep-12, user report session 60). Root cause: the
+   megaplay CDN-candidate loop accepted a candidate at the master stage (WebView-verified)
+   then died at the variant stage WITHOUT trying the OkHttp-friendly `bcdn` candidate; plus
+   the site's rotated server lineup (Vidstream-2/1beta/HD-2 = one file behind three names).
+   Fixed in v16.13 (verify-both-stages + fallthrough, bcdn-first, per-variant WebView
+   fallback, stream dedup).
 
 ## Related
 

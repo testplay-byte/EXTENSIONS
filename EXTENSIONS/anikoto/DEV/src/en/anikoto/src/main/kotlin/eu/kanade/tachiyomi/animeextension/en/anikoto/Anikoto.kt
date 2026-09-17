@@ -31,6 +31,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -484,8 +485,18 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             val animeCoverUrl = detailDoc.selectFirst("div.poster img")?.attr("abs:src")
             AnikotoLog.d("enrichEpisodesWithMetadata: malId=$malId, cover=${animeCoverUrl?.take(50)}, thumbs=$loadThumbnails, titles=$loadTitles, descs=$loadDescriptions")
 
-            // Fetch from all sources (cached, never throws)
-            val metadata = metadataFetcher.fetch(malId, animeCoverUrl)
+            // Fetch from all sources (cached, never throws).
+            // ★ session 60: hard 25s ceiling — with all internal sources timeout-bounded this
+            // rarely triggers, but it guarantees the episode list can never hang on metadata
+            // (e.g. a total AniList + Anikage + Kitsu + Jikan outage). withTimeoutOrNull
+            // returns null on timeout; external cancellation still propagates normally.
+            val metadata = withTimeoutOrNull(METADATA_ENRICH_TIMEOUT_MS) {
+                metadataFetcher.fetch(malId, animeCoverUrl)
+            }
+            if (metadata == null) {
+                AnikotoLog.w("enrichEpisodesWithMetadata: timed out after ${METADATA_ENRICH_TIMEOUT_MS / 1000}s — episodes load without enrichment")
+                return
+            }
             if (metadata.isEmpty()) {
                 AnikotoLog.d("enrichEpisodesWithMetadata: no metadata for malId=$malId")
                 return
@@ -697,6 +708,35 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             AnikotoLog.i("  resolved: ${stream.hosterName} [${stream.audioLabel}] — ${stream.variants.size} variants, ${stream.subtitles.size} subs")
         }
 
+        // ── ★ session 60: dedup identical resolved streams ─────────────────
+        // The site now exposes several server entries (Vidstream-2, Vidstream-1beta, HD-2)
+        // that resolve to the SAME player iframe + data-id (verified live 2026-09-17 on
+        // Exiled Heavy Knight ep-12) → identical variant/segment URLs. Serving 3 identical
+        // hosters wastes resolution time and clutters the server picker. Dedup key = audio
+        // label + first segment URL (same data-id + same CDN ⇒ same file). When duplicates
+        // disagree on label, keep the one matching the user's preferred server.
+        val dedupedStreams = run {
+            fun dedupKey(s: AudioStream): String =
+                s.audioLabel + "|" + (s.variants.firstOrNull()?.segments?.firstOrNull()?.url ?: "")
+            val byKey = linkedMapOf<String, AudioStream>()
+            for (stream in resolvedStreams) {
+                val key = dedupKey(stream)
+                val existing = byKey[key]
+                if (existing == null) {
+                    byKey[key] = stream
+                    continue
+                }
+                val pref = preferredServer
+                val existingPref = pref != "auto" && existing.hosterName.contains(pref, ignoreCase = true)
+                val newPref = pref != "auto" && stream.hosterName.contains(pref, ignoreCase = true)
+                if (newPref && !existingPref) byKey[key] = stream
+            }
+            byKey.values.toList()
+        }
+        if (dedupedStreams.size < resolvedStreams.size) {
+            AnikotoLog.i("getHosterList: deduped ${resolvedStreams.size} → ${dedupedStreams.size} identical streams (same file behind multiple server names)")
+        }
+
         // ── Proxy setup ───────────────────────────────────────────────────
         // ★ session 29: desktop Chrome UA + no Accept-Language (matches reference project).
         // This is the fallback when a stream has no per-stream referer (headersForStream falls back).
@@ -706,7 +746,7 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             .set("Accept", "*/*")
             .build()
         val server = LocalProxyServer(proxyFetchClient, segHeaders, webViewFetcher)
-        server.setPlaylist(Playlist(resolvedStreams))
+        server.setPlaylist(Playlist(dedupedStreams))
         server.prefetchCount = prefetchBuffer.toIntOrNull()?.coerceIn(10, 100) ?: 10
         val proxyBaseUrl = server.start()
         AnikotoLog.i("getHosterList: proxy started at $proxyBaseUrl (prefetch=${server.prefetchCount}%)")
@@ -727,7 +767,7 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         // retains the old audio PID → different PIDs in new quality → no audio.
         // Verified against the v16.4 reference APK (uses initialized=false, no mpvArgs).
         val allVideos = mutableMapOf<String, MutableList<Video>>()
-        for ((streamIndex, stream) in resolvedStreams.withIndex()) {
+        for ((streamIndex, stream) in dedupedStreams.withIndex()) {
             val subtitleTracks = server.getSubtitleTracks(streamIndex)
             for (variant in stream.variants) {
                 val videoUrl = "$proxyBaseUrl/variant/$streamIndex/${variant.quality}.m3u8"
@@ -944,7 +984,10 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         /** ★ session 52: default site domain (used when no preference is saved yet). */
         internal const val DEFAULT_BASE_URL = "https://anikototv.to"
 
+        /** ★ session 60: hard ceiling for the episode-metadata enrichment phase. */
+        private const val METADATA_ENRICH_TIMEOUT_MS = 25_000L
+
         // Preference keys and defaults have been moved to AnikotoSettings.kt.
-        // Access them through `settings.*` (e.g., settings.preferredQuality).
+        // Access them through `settings.*` (e.g. settings.preferredQuality).
     }
 }

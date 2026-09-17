@@ -204,8 +204,20 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
             ListPreference(context).apply {
                 key = PREF_SERVER_KEY
                 title = "Preferred server"
-                entries = arrayOf("Auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream")
-                entryValues = arrayOf("auto", "VidPlay-1", "HD-1", "Vidstream-2", "VidCloud-1", "Kiwi-Stream")
+                // ★ session 60: refreshed for the site's CURRENT server lineup (verified live
+                // 2026-09-17: Vidstream-2, Vidstream-1beta, HD-2). Legacy names stay listed —
+                // the site rotates server names over time and old entries still match if a
+                // name ever returns (the sorter uses contains(), unknown names are harmless).
+                entries = arrayOf(
+                    "Auto",
+                    "Vidstream-2", "Vidstream-1beta", "HD-2",
+                    "VidPlay-1", "HD-1", "VidCloud-1", "Kiwi-Stream",
+                )
+                entryValues = arrayOf(
+                    "auto",
+                    "Vidstream-2", "Vidstream-1beta", "HD-2",
+                    "VidPlay-1", "HD-1", "VidCloud-1", "Kiwi-Stream",
+                )
                 setDefaultValue(PREF_SERVER_DEFAULT)
                 summary = "Currently: %s"
             }.also(::addPreference)

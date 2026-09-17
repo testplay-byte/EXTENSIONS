@@ -54,49 +54,27 @@ class AnikotoExtractors(
     // ── Flow A: VidTube (VidPlay-1, HD-1, Vidstream-2) ──────────────────────
 
     /** ★ session 52: parsed getSources/getSourcesNew result — master m3u8 + subtitle tracks.
-     *  ★ session 54: [masterText] carries the ALREADY-FETCHED master playlist text
-     *  (verified fetchable during [fetchSourcesData]) so resolveVidTube doesn't re-fetch it. */
+     *  ★ session 54/60: [masterText] carries the ALREADY-FETCHED master playlist text
+     *  (verified fetchable inside [fetchAndVerifySources]) so the winner candidate never
+     *  re-fetches it. */
     private data class SourcesData(val masterM3u8: String, val tracks: List<VidTubeTrack>, val masterText: String? = null)
 
     /**
-     * ★ session 52/54: Resolve the master m3u8 + subtitle tracks for a data-id.
+     * ★ session 60: CDN-candidate loop moved INTO [resolveVidTube] — a candidate must now
+     * verify at BOTH stages (master fetchable AND ≥1 variant playlist loaded) before it is
+     * accepted; otherwise the loop falls through to the next `s` candidate.
      *
-     * megaplay.buzz (HD-1, Vidstream-2) ENCRYPTS its getSources/getSourcesNew responses
-     * ("enc" AES-256-CBC blob — decrypted via [MegaPlayDecrypt], constants from
-     * megaplay's lib/newclient.min.js).
-     *
-     * ★ session 54: the DECRYPTED master m3u8 host now ROTATES per response
-     * (fetch.nexabloom.top, xdw5v.qeltrix.top, megap.shiora.site/.top, ...). The default
-     * CDN's MASTER m3u8 rejects non-browser TLS (openresty 403 to OkHttp — verified live;
-     * Chrome passes, and the same host's variants + subtitles DO work with a Referer).
-     * The site's player selects the CDN via the `s=` query param, which its
-     * newclient.min.js appends to every getSources call.
-     *
-     * ★ session 56: `tcdn` is NO LONGER reliably fetchable (403s at the master, verified
-     * live) and megaplay's current selector set is {tcdn, bcdn} — the player's own inline
-     * bypass-check (`"tcdn"!==s&&"bcdn"!==s`) names the valid selectors. Hardcoding one
-     * selector broke Vidstream-2 (its iframe carries NO `s=` param → we tried stale tcdn
-     * → 403 → server vanished from the UI while HD-2, which ships ?s=bcdn, survived).
-     *
-     * Strategy: iterate DYNAMICALLY DISCOVERED `s` candidates ([sCandidates] — built in
-     * [resolveVidTube] from the iframe URL, the iframe page's own selector whitelist, and
-     * known fallbacks) × [getSourcesNew, getSources]: fetch, parse (plaintext OR enc),
-     * then VERIFY the master m3u8 is actually fetchable — the first verified combo wins.
-     * WebView (Chrome TLS) is the last-resort master fetcher. This self-corrects against
-     * future CDN rotation without hardcoding hosts.
+     * WHY (live-verified 2026-09-17, Exiled Heavy Knight ep-12 — the reported
+     * "no resolved video streams" bug): the decrypted master for the default/tcdn CDN lives
+     * on fetch.nexabloom.top, whose MASTER 403s non-browser TLS (variants on the same host
+     * are fine). The old flow accepted a candidate as soon as its master verified — possibly
+     * via the WebView fallback (a single shared WebView behind a serialized lock with 30s
+     * timeouts, fragile under the 3 parallel server tasks). If the variant stage then failed,
+     * resolveVidTube returned null WITHOUT ever trying the OkHttp-friendly bcdn candidate
+     * (ncdn.imgnex.top — verified live: master+variants+segments all 200 to plain OkHttp).
+     * Fresh episodes resolved 0 streams. The old per-candidate helper fetchSourcesData
+     * was removed; [fetchAndVerifySources] (master-stage verify) is unchanged.
      */
-    private suspend fun fetchSourcesData(host: String, dataId: String, audioType: String, sCandidates: List<String>): SourcesData? {
-        for (s in sCandidates) {
-            val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
-            // Attempt 1: getSourcesNew (the player's newclient.min.js rewrites
-            // getSources → getSourcesNew exactly like this)
-            fetchAndVerifySources(host, "getSourcesNew", dataId, audioType, sSuffix)?.let { return it }
-            // Attempt 2: getSources (legacy — enc-encrypted on megaplay, decrypted via
-            // [MegaPlayDecrypt]; still plaintext on vidtube/vidwish)
-            fetchAndVerifySources(host, "getSources", dataId, audioType, sSuffix)?.let { return it }
-        }
-        return null
-    }
 
     /**
      * ★ session 54: fetch one getSources/getSourcesNew variant, parse it (plaintext or
@@ -199,91 +177,82 @@ class AnikotoExtractors(
             AnikotoLog.i("resolveVidTube: data-id=$dataId")
 
             // Step 2: Fetch sources m3u8 + tracks.
-            // ★ session 52: megaplay.buzz (HD-1, Vidstream-2) ENCRYPTED its getSources response
-            // ("enc" AES-256-CBC blob — sources.file is gone) — decrypted by MegaPlayDecrypt.
-            // ★ session 54: the DECRYPTED master m3u8 now lives on ROTATING CDN hosts whose
+            // ★ session 52: megaplay.buzz (HD-1, Vidstream-2) ENCRYPTS its getSources response
+            // ("enc" AES-256-CBC blob — decrypted by MegaPlayDecrypt).
+            // ★ session 54: the DECRYPTED master m3u8 lives on ROTATING CDN hosts whose
             // DEFAULT member 403s non-browser TLS at the master (openresty; Chrome passes).
             // The site's player appends the page's `s=` CDN-selector to every getSources call
-            // (newclient.min.js) — HD-1 ships ?s=tcdn → megap.shiora.*, OkHttp-friendly.
-            // We mirror that: candidates = [iframe's own s, "tcdn", none], each × [New, legacy],
-            // accepting the first combo whose master m3u8 VERIFIES as fetchable (WebView as
-            // last resort). See fetchSourcesData for the full rationale.
+            // (newclient.min.js).
+            // ★ session 60: the candidate loop below accepts a candidate only when the master
+            // AND ≥1 variant playlist both verify — otherwise it falls through to the next
+            // candidate. See the class kdoc for the full ep-12 rationale.
             val sParam = iframeUrl.substringAfter('?', "")
                 .substringBefore('#')
                 .split('&')
                 .firstOrNull { it.startsWith("s=") }
                 ?.substringAfter('=')
                 ?.takeIf { it.isNotBlank() }
-            // ★ session 56: discover ALL valid CDN selectors instead of hardcoding one.
-            // Priority: (1) the iframe URL's own s= — the site's own player chose it;
-            // (2) selectors named in the iframe page's bypass-check ("X"!==s pattern —
-            //     megaplay whitelists its CDN ids there, e.g. tcdn/bcdn — self-updating);
-            // (3) s= links found anywhere in the page; (4) known fallbacks + none.
+            // ★ session 56/60: discover ALL valid CDN selectors instead of hardcoding one.
+            // ★ session 60 ORDER now mirrors measured fetchability: (1) the iframe's own s=
+            // (the site player's choice), (2) "bcdn" — the OkHttp-friendly CDN (verified live
+            // 2026-09-17: master+variants+segments all 200 to plain OkHttp), (3) selectors
+            // named in the iframe page's bypass-check ("X"!==s pattern — self-updating),
+            // (4) s= links found in the page, (5) "tcdn" + the default CDN (their MASTER 403s
+            // non-browser TLS — reachable only via the WebView fallback, so they go LAST).
+            // Old order tried tcdn first for no-s iframes (Vidstream-2/1beta), forcing the
+            // fragile WebView detour on every fresh episode.
             val sCandidates = buildList {
                 if (!sParam.isNullOrBlank()) add(sParam)
+                add("bcdn") // session 56: the OkHttp-friendly CDN (ncdn.imgnex.top) — try first
                 for (m in Regex("\"([a-z0-9_]{2,12})\"!==s").findAll(pageHtml)) add(m.groupValues[1])
                 for (m in Regex("[?&]s=([a-z0-9_]{2,12})").findAll(pageHtml)) add(m.groupValues[1])
-                add("bcdn") // session 56: currently the OkHttp-friendly CDN (ncdn.imgnex.top)
-                add("tcdn") // session 54 CDN — started 403ing 2026-09-13; kept for rotation
+                add("tcdn") // session 54 CDN — master 403s non-browser TLS since ~2026-09-13
                 add("")     // default CDN — works in browsers; kept for future-proofing
             }.distinct().take(6)
-            val sourcesData = fetchSourcesData(host, dataId, audioType, sCandidates)
-            if (sourcesData == null) {
-                AnikotoLog.e("resolveVidTube: no valid m3u8 from getSourcesNew/getSources (host=$host, sCandidates=$sCandidates)")
-                return null
-            }
-            val masterM3u8 = sourcesData.masterM3u8
-            AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)}")
-            AnikotoLog.i("resolveVidTube: subs=${sourcesData.tracks.size} track(s)")
-            // Step 3: parse master m3u8 → variants
-            // ★ session 54: masterText was ALREADY fetched + verified inside fetchSourcesData
-            // (that's how the working CDN was chosen) — reuse it instead of re-fetching.
-            AnikotoLog.d("resolveVidTube: [3/5] using verified master m3u8 text")
-            val masterText = sourcesData.masterText
-                ?: fetchString(masterM3u8, segHeaders(host)) // defensive: should never happen
-            if (!masterText.startsWith("#EXTM3U")) {
-                AnikotoLog.e("resolveVidTube: master is not m3u8 (starts with ${masterText.take(40)})")
-                return null
-            }
-            val variantInfos = parseMasterPlaylist(masterText, masterM3u8)
-            if (variantInfos.isEmpty()) {
-                AnikotoLog.e("resolveVidTube: no variants in master m3u8")
-                return null
-            }
-            AnikotoLog.i("resolveVidTube: ${variantInfos.size} variants: ${variantInfos.joinToString { "${it.quality}(${it.bandwidth})" }}")
 
-            // Step 4: for each variant, fetch media playlist → parse segments
-            // ★ NO ad filtering — the reference v3 keeps ALL segments.
-            // ★ session 51: parallelized — all variants fetched concurrently instead of sequentially.
-            // Filtering removes real video content (only 12 of 143 segments are on nekostream.site,
-            // but the full episode needs all 143). This fixes duration, audio, and buffering.
-            AnikotoLog.d("resolveVidTube: [4/5] fetching ${variantInfos.size} variant playlists in parallel (NO ad filter)")
-            // ★ session 51 fix: catch CancellationException separately and re-throw it.
-            // Kotlin's catch(e: Exception) would swallow CancellationException, preventing
-            // proper coroutine cancellation — causing hangs or partial data.
-            val variantDataList = coroutineScope {
-                variantInfos.map { v ->
-                    async(Dispatchers.IO) {
-                        variantSemaphore.withPermit {
-                            try {
-                                val varText = fetchString(v.url, segHeaders(host))
-                                val segs = parseVariantSegments(varText, v.url, filterAds = false)
-                                AnikotoLog.d("resolveVidTube:   variant ${v.quality}: ${segs.size} segments (all kept, no filter)")
-                                if (segs.isNotEmpty()) VariantData(v.quality, v.bandwidth, v.resolution, segs) else null
-                            } catch (e: CancellationException) {
-                                throw e // ★ MUST re-throw — never swallow CancellationException
-                            } catch (e: Exception) {
-                                AnikotoLog.e("resolveVidTube:   variant ${v.quality} fetch FAILED: ${e.message}")
-                                null
-                            }
-                        }
-                    }
-                }.awaitAll().filterNotNull()
+            // ★ session 60: a candidate wins only when master AND ≥1 variant verify; otherwise
+            // we FALL THROUGH to the next candidate instead of aborting (see class kdoc).
+            var chosenSources: SourcesData? = null
+            var chosenVariants: List<VariantData> = emptyList()
+            var winnerLabel = ""
+            for (s in sCandidates) {
+                val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
+                val candidate = fetchAndVerifySources(host, "getSourcesNew", dataId, audioType, sSuffix)
+                    ?: fetchAndVerifySources(host, "getSources", dataId, audioType, sSuffix)
+                    ?: continue
+                // Defensive: the master text was already fetched + verified inside
+                // fetchAndVerifySources (that's how the working CDN was chosen).
+                val masterText = candidate.masterText
+                    ?: fetchString(candidate.masterM3u8, segHeaders(host))
+                if (!masterText.startsWith("#EXTM3U")) {
+                    AnikotoLog.w("resolveVidTube: candidate s=$s master is not m3u8 (starts with ${masterText.take(30)}) — trying next candidate")
+                    continue
+                }
+                val variantInfos = parseMasterPlaylist(masterText, candidate.masterM3u8)
+                if (variantInfos.isEmpty()) {
+                    AnikotoLog.w("resolveVidTube: candidate s=$s master has no variants — trying next candidate")
+                    continue
+                }
+                AnikotoLog.i("resolveVidTube: candidate s=$s → ${variantInfos.size} variants: ${variantInfos.joinToString { "${it.quality}(${it.bandwidth})" }}")
+                AnikotoLog.d("resolveVidTube: [4/5] fetching ${variantInfos.size} variant playlists in parallel (NO ad filter)")
+                val variants = loadVariantPlaylists(variantInfos, host)
+                if (variants.isEmpty()) {
+                    AnikotoLog.w("resolveVidTube: candidate s=$s verified but 0 variants loaded — trying next candidate")
+                    continue
+                }
+                chosenSources = candidate
+                chosenVariants = variants
+                winnerLabel = if (s.isBlank()) "default-CDN" else "s=$s"
+                break
             }
-            if (variantDataList.isEmpty()) {
-                AnikotoLog.e("resolveVidTube: no variants could be loaded")
+            val sourcesData = chosenSources ?: run {
+                AnikotoLog.e("resolveVidTube: no candidate produced a verifiable stream (host=$host, sCandidates=$sCandidates)")
                 return null
             }
+            val variantDataList = chosenVariants
+            val masterM3u8 = sourcesData.masterM3u8
+            AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)} (winner=$winnerLabel)")
+            AnikotoLog.i("resolveVidTube: subs=${sourcesData.tracks.size} track(s)")
 
             // Step 5: build subtitles
             val subtitles = sourcesData.tracks.mapNotNull { track ->
@@ -309,6 +278,41 @@ class AnikotoExtractors(
             return null
         }
     }
+
+    /**
+     * ★ session 60: fetch + parse every variant playlist, with a per-variant WebView
+     * (Chrome TLS) fallback when OkHttp fails. CDN rotation can spread the master-only-403
+     * pattern to variant playlists at any time — previously that silently emptied the
+     * variant list and killed the whole server. Semaphore keeps concurrency at 2 (session 51).
+     */
+    private suspend fun loadVariantPlaylists(variantInfos: List<VariantInfo>, host: String): List<VariantData> =
+        coroutineScope {
+            variantInfos.map { v ->
+                async(Dispatchers.IO) {
+                    variantSemaphore.withPermit {
+                        try {
+                            val varText = try {
+                                fetchString(v.url, segHeaders(host))
+                            } catch (e: CancellationException) {
+                                throw e // ★ MUST re-throw — never swallow CancellationException
+                            } catch (e: Exception) {
+                                if (webViewFetcher == null) throw e
+                                AnikotoLog.w("resolveVidTube: variant ${v.quality} OkHttp fetch failed (${e.message?.take(50)}) — WebView fallback")
+                                webViewFetcher.fetchText(v.url)
+                            }
+                            val segs = parseVariantSegments(varText, v.url, filterAds = false)
+                            AnikotoLog.d("resolveVidTube:   variant ${v.quality}: ${segs.size} segments (all kept, no filter)")
+                            if (segs.isNotEmpty()) VariantData(v.quality, v.bandwidth, v.resolution, segs) else null
+                        } catch (e: CancellationException) {
+                            throw e // ★ MUST re-throw — never swallow CancellationException
+                        } catch (e: Exception) {
+                            AnikotoLog.e("resolveVidTube:   variant ${v.quality} fetch FAILED: ${e.message}")
+                            null
+                        }
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
 
     // ── Flow B: Kiwi-Stream (base64 fragment → direct m3u8) ──────────────────
 

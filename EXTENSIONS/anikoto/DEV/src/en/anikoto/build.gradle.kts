@@ -31,7 +31,15 @@ android {
         // defaults: Smart Search ON + engine Google AI Search, "Copy response" toggle
         // (default OFF; query+title on success, query+error+raw on failure), Details
         // section rewritten to usage instructions.
-        val extVersionCode = 12
+        // ★ session 60 / v16.13 (TEST BUILD): stream-resolution + metadata hardening —
+        // CDN-candidate loop now verifies master AND variants before accepting a candidate
+        // and falls through to the next candidate otherwise (fixes "no resolved streams"
+        // on fresh episodes, e.g. Exiled Heavy Knight ep-12); bcdn tried first (pure-OkHttp
+        // path); per-variant WebView fallback; dedup of identical server entries
+        // (Vidstream-2/1beta/HD-2 share one data-id); metadata: no more poisoned empty
+        // cache, parallel sources, short-timeout client, AniList OkHttp-first + cached-id
+        // outage fallback, Jikan 429 retry, 25s enrich ceiling; server picker refreshed.
+        val extVersionCode = 13
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

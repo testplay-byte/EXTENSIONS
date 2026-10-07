@@ -49,7 +49,9 @@ export const EXTENSIONS: ExtensionMeta[] = [
     build: 15,
     date: "October 7, 2026",
     status: "stable",
-    availableBuilds: ["release", "debug"],
+    // ★ s62: the Release workflow publishes only the signed RELEASE APK for AniKoto
+    // (debug APKs exist only for WIP extensions) — advertising "debug" produced a 404 link.
+    availableBuilds: ["release"],
     icon: "/icon.png",
     letter: "AK",
     site: "anikototv.to",

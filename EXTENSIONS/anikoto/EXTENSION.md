@@ -17,11 +17,11 @@
 | **versionId** | `11` (STABLE) | Bumping orphans saved anime. NEVER change. |
 | **Package** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` | Distinguishes from other publishers (s49) |
 | **extClass** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` | FULL path, no leading dot (applicationId ≠ source package) |
-| **versionCode** | `16` | Bump per build. ★ Test-build numbers are NOT reserved (s58): v16.13 was reused as a test-build number by s57 AND s60; the release after them took v16.14 |
-| **versionName** | `16.16` | = `16.<extVersionCode>` (auto-derived) |
+| **versionCode** | `13` | Bump per build. ★ Test-build numbers are NOT reserved (s58): internal builds used 16.13-test…16.16; the DIST release after them took v16.13 (user's explicit instruction, s64) — the dist line jumps 16.12 → 16.13 and carries ALL test-build fixes |
+| **versionName** | `16.13` | = `16.<extVersionCode>` (auto-derived) |
 | **Target site** | `anikototv.to` | |
 | **Signing key** | `anikoto-release.jks` (SHA-256 `B4:67:CA:…:6A:5A`, alias `anikoto`) | At `DEV/anikoto-release.jks` — keep secure |
-| **Current release** | `aniyomi-en.anikoto180-v16.16-release.apk` | 296,659 B · MD5 `1f8d20cdb33aab32dc952aae073e9e75` · SHA256 `723f4aa2…ed5f` · published 2026-10-07 (session 63) |
+| **Current release** | `aniyomi-en.anikoto180-v16.13-release.apk` | 296,874 B · MD5 `e703c9b9bcd9eabb7a9cced6a75c7518` · SHA256 `4514aa25…240c3` · published 2026-10-07 (session 64, DIST release) |
 
 ## Build (⚠️ GitHub Actions ONLY — never install the Android SDK in a sandbox)
 
@@ -45,9 +45,12 @@ Before every push: **tree-sitter Kotlin parse** every changed `.kt` file (recipe
 `MEMORY/workflow/sandbox/TOOLS.md` §5) — CI compile errors cost runs. Historical local-build
 guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — legacy reference only.
 
-## Current status (v16.16 Build 16, session 63) — ✅ RELEASED (build-repo release + downloads page); dist-repo update pending user testing
+## Current status (v16.13 Build 13, session 64) — ✅ DIST RELEASE: build-repo tag/Release live; dist-repo publish package READY (blocked only on a contents:write PAT2 — provided token is read-only)
 
-- **WebView URL root fix (s63, user-reported: "got https://anikoto.cz/<slug>, expected /watch/<slug>")**: anime.url is now STORED as the site path `/watch/<slug>` — the yuzono/anikototheme reference behavior — instead of the bare slug. Live-verified 2026-10-07: the site 404s EVERY path without `/watch/`, so any app-side construction of `baseUrl + "/" + anime.url` (forks that bypass `getAnimeUrl`) produced exactly the reported bad URL. Now EVERY construction lands on the real page; older persisted shapes (bare slug from ≤v16.15, `/watch/…`, full URLs, malformed hybrids) still normalize via `animeSlug()`/`animeWatchPath()` (query-string safe too).
+- **v16.13 = first dist-repo release after v16.12 (s64, user's explicit instruction)**: the dist line jumps 16.12 → 16.13 and carries ALL fixes from internal test builds 16.13-test…16.16 (test-build numbers are not reserved — s58 precedent). Devices on 16.14–16.16 test builds (codes 14–16) are not offered the 16.13 in-app update; they sideload the identical-code APK or wait for the next dist release.
+- **Review hardening (s64)**: adversarial sub-agent verdict CONFIDENT SOLVED (0 blocking) + independent fresh verifier SHIP IT; 6 hardening fixes applied — CancellationException re-thrown in `resolveVidTube`/`resolveKiwi`/`enrichEpisodesWithMetadata`/`fetchString` (never swallow cancellation), `?servers=` dataIds URL-encoded, `animeSlug()` strips `/ep-N` before last-segment (swapped-order malformed URLs), WebView `ensureWebView` destroys the replaced instance (warm-up race leak).
+- **Dist index update-path fix (s64, real bug found)**: the user's in-app repo URL is `…/repo/index.min.json` (add-repo.html); Aniyomi normalizes it to base `…/repo` and resolves the index `apk` field repo-relative (keiyoushi convention). The dist index has carried a BARE filename while APKs live under `apk/` → `<repoBase>/<apk>` 404'd — in-app install/update silently broken since v16.10 (users could only sideload from the download page). v16.13's index uses `"apk": "apk/<file>"` → in-app updates work again.
+- **WebView URL root fix (s63, user-reported: "got https://anikoto.cz/<slug>, expected /watch/<slug>")**: anime.url is now STORED as the site path `/watch/<slug>` — the yuzono/anikototheme reference behavior — instead of the bare slug. Live-verified 2026-10-07 (re-verified s64): the site 404s EVERY path without `/watch/`, so any app-side construction of `baseUrl + "/" + anime.url` (forks that bypass `getAnimeUrl`) produced exactly the reported bad URL. Now EVERY construction lands on the real page; older persisted shapes (bare slug from ≤v16.15, `/watch/…`, full URLs, malformed hybrids) still normalize via `animeSlug()`/`animeWatchPath()` (query-string safe too).
 - **Fresh per-request headers (s63)**: the base class `headers` val is lazy and froze `Referer: <first-domain>` for the whole process — after a Preferred-domain switch request URLs were correct (s62 live getter) but the Referer leaked the old domain. Popular/latest/search/details now build headers each request (`docHeaders()`).
 - **Mapper pipeline un-deaded (s63)**: live recon proved the mapper returns keys like `Kiwi` (no trailing dash) while `parseMapperResponse` required `endsWith("-")` → ZERO tokens ever parsed; and mapper tokens are FULL player URLs but were fed through `/ajax/server?get=` as link-ids. Now: keys accepted with/without dash, `status`/`error`/`message` skipped, names mapped gogoanime→Vidstream / anivibe→Vibe-Stream / kiwi*→Kiwi-Stream (yuzono parity), ALL streaming mapper servers surfaced (not just Kiwi), tokens used directly as embed URLs, mewcdn `HOST_MAP` honored, and a new direct-m3u8 Flow C handles plain-HLS mapper entries. (Live mapper currently offers only Kiwi DOWNLOAD links — see resolutions note.)
 - **MegaPlay CDN HMAC token (s63, yuzono parity)**: decrypted getSources m3u8 URLs get the same `?token=` HMAC-SHA256 signature the site's own player appends (secret from yuzono maintainers). Live A/B 2026-10-07: no behavioral difference today (same master) — future-proofing against the CDN starting to require it.
@@ -74,7 +77,7 @@ guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — leg
 - **Promo line**: "Thank the Confused_creature_180" appended to every anime description.
 - **Logging**: logcat-only (tag "Anikoto"), no file I/O, no permissions.
 - **R8 release builds**: proguard rules keep `$$serializer` classes (prevents serialization crash).
-- **Signed release APK**: reproducible (v16.16: 296,659 bytes).
+- **Signed release APK**: reproducible (v16.13: 296,874 bytes).
 
 ## Key file locations (relative to `EXTENSIONS/anikoto/`)
 

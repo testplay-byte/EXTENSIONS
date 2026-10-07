@@ -1,7 +1,7 @@
 # AniKoto 180 — Extension APK Information Sheet
 
-> Generated: 2026-06-26 (session 49) · Updated: 2026-10-07 (session 63) · By: Confused_Creature (180)
-> Current version: v16.16 (versionCode=16) — RELEASE, published 2026-10-07
+> Generated: 2026-06-26 (session 49) · Updated: 2026-10-07 (session 64) · By: Confused_Creature (180)
+> Current version: v16.13 (versionCode=13) — DIST RELEASE, published 2026-10-07
 
 ---
 
@@ -9,13 +9,13 @@
 
 | Property | Value |
 |----------|-------|
-| **File name** | `aniyomi-en.anikoto180-v16.16-release.apk` |
-| **File size** | 296,659 B (~290 KB) |
-| **MD5** | `1f8d20cdb33aab32dc952aae073e9e75` |
-| **SHA-256 (file)** | `723f4aa2872932cd731020544493871f5b5bb029a0fb7a9422d79f20d253ed5f` |
+| **File name** | `aniyomi-en.anikoto180-v16.13-release.apk` |
+| **File size** | 296,874 B (~290 KB) |
+| **MD5** | `e703c9b9bcd9eabb7a9cced6a75c7518` |
+| **SHA-256 (file)** | `4514aa2530f017bec4ab3d6381b4f8873bd4a7b06cd3cf64db9174868ab240c3` |
 | **App label** | AniKoto 180 |
 | **Package name** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` |
-| **Version** | `16.16` (versionCode=16) |
+| **Version** | `16.13` (versionCode=13) — first dist-repo release after v16.12; carries ALL internal 16.13-test…16.16 fixes |
 | **Extension versionId** | `11` (STABLE — do NOT change) |
 | **Extension class** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` (FULL path, no leading dot) |
 | **ext-lib version** | 16 (versionName must start with "16.") |

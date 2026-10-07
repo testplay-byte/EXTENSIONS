@@ -102,7 +102,11 @@ The user tests the artifact APK directly (signature matches → in-place install
 ## 7. Secrets (sandbox-only; ask the user if missing)
 
 - PAT1 — push to this repo (`testplay-byte/EXTENSIONS`)
-- PAT2 — push to the dist repo (use sparingly!)
+- PAT2 — push to the dist repo (use sparingly!) ★ s64: the token the user supplied was
+  READ-ONLY (no `Contents: write`); verified via `/git/blobs` 403 + git-push 403. v16.13's dist
+  publication is fully prepared (`/home/z/anikoto-workflow/dist-publish-v16.13.sh`, sandbox-only)
+  and runs ONE-SHOT once a contents:write token exists. If a fresh PAT2 also 403s, tell the user
+  to set Permissions → Contents → Read and write on the token.
 - ntfy topic `THE-TASK-IS-DONE` — POST one-line summary when a user-visible milestone completes
 - User's Gemini test key (session 57, internal testing only — NEVER ship in the extension)
 None of these are committed anywhere in git. `MEMORY/workflow/sandbox/README.md` points to the

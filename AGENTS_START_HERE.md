@@ -30,7 +30,7 @@ built and signed by GitHub Actions and published as GitHub Releases.
 
 | Extension | Status | Version | Keystore |
 |---|---|---|---|
-| AniKoto 180 | ✅ Stable | v16.9 (build 9) | `anikoto-release.jks` (alias `anikoto`) |
+| AniKoto 180 | ✅ Stable | v16.14 (build 14) | `anikoto-release.jks` (alias `anikoto`) |
 | AnimePahe 180 | ✅ Stable | v16.10 (build 10) | `animepahe-release.jks` (alias `animepahe`) |
 | MKissa 180 | 🚧 In progress (3/6 servers) | v16.17 (build 17) | ⚠️ none yet (debug only) |
 

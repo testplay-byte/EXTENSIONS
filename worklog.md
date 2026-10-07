@@ -4013,3 +4013,21 @@ Work Log:
 
 Stage Summary:
 - AniKoto 180 closed in fully working state (v16.12). Handoff package complete: next agent starts at EXTENSIONS/anikoto/AGENT_ONBOARDING.md (committed) → workflow folder → latest session logs.
+
+---
+Task ID: anikoto-session-61
+Agent: Main Agent (Z.ai Code)
+Task: v16.14 RELEASE — user-reported post-v16.13-test issues: (1) "Open in WebView opens a random/wrong URL for content", (2) "resolving video sources gives only a 1080p resolution for some of the videos". Publish on the build repo downloads page (tag → GitHub Release → Pages), ntfy TASK808DONE, dist repo deliberately deferred until user testing (PAT2 comes later).
+
+Work Log:
+- Sandbox restored (PAT1 build repo clone + read-only dist repo clone, tools reinstalled, SECRETS.md rebuilt with PAT1 + ntfy TASK808DONE).
+- Live recon (paced curl_cffi, /home/z/recon/): (1) `GET /<slug>` → 404 Error page on anikototv.to AND anikoto.cz while `/watch/<slug>` → 200 — combined with ext-lib stub reading (getAnimeUrl default = baseUrl + anime.url, and we store the BARE SLUG) = WebView root cause confirmed. (2) Full pipeline replica: megaplay enc-blob decryption still valid; server lineups dynamic (Vidstream-1 back, 4 names → 1-2 iframes); ALL CDN candidates now 200 to plain TLS (session-54 403 pattern gone); beyblade-x-aj6fn = single-variant 1080p master on BOTH mirrors × all servers × all s-candidates × both endpoints (24 combos), yuu-gi-ou-go-rush = 720p-only → "only 1080p" = site-side source limitation; Kiwi mapper now download-only (HTML pages, no streams). Probe trap recorded: naive RESOLUTION regex counts I-FRAME-STREAM-INF lines.
+- Fixes (commit 7f8fcdc, 3 files, +109/−10): getAnimeUrl override → $baseUrl/watch/<slug>; animeSlug() normalizer at all anime-url entry points (details/episodes/WebView/search; tolerant of old persisted shapes + foreign-domain listing links); candidate-loop partial-load robustness (best-partial fallback, fast paths unchanged); single-variant explanatory log; extVersionCode 13→14 (v16.14), extVersionId 11 untouched.
+- Quality gate: tree-sitter parse OK on both touched .kt. Sandbox quirk recorded: Bash display strips "[h" sequences — verify files via Read tool / numeric counts only.
+- CI: dispatch test build (publish=false) run 37631638170 SUCCESS → artifact test-build-apks-v16.14; then tag v16.14 pushed → release run 37633161902 (signed APKs + GitHub Release + Pages redeploy).
+- Docs: session-61 log written; EXTENSION.md/APK_INFO.md/registry refresh after release assets land (real hashes).
+
+Stage Summary:
+- ★ v16.14 RELEASE published on the build repo (downloads page auto-links releases/latest); dist repo untouched by design — user tests first, PAT2 arrives later.
+- ★ WebView random-URL root cause fixed at the anime level (getAnimeUrl); episode level was already correct since v16.27.
+- ★ "Only 1080p" = single-variant masters at source (live-verified exhaustively); extension now recovers transient partial variant failures and logs the single-variant case clearly.

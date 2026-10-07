@@ -17,11 +17,11 @@
 | **versionId** | `11` (STABLE) | Bumping orphans saved anime. NEVER change. |
 | **Package** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` | Distinguishes from other publishers (s49) |
 | **extClass** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` | FULL path, no leading dot (applicationId ≠ source package) |
-| **versionCode** | `12` | Bump per build. ★ Test-build numbers are NOT reserved (s58): the published release reused 16.12 after test builds 16.12/16.13 |
-| **versionName** | `16.12` | = `16.<extVersionCode>` (auto-derived) |
+| **versionCode** | `14` | Bump per build. ★ Test-build numbers are NOT reserved (s58): v16.13 was reused as a test-build number by s57 AND s60; the release after them took v16.14 |
+| **versionName** | `16.14` | = `16.<extVersionCode>` (auto-derived) |
 | **Target site** | `anikototv.to` | |
 | **Signing key** | `anikoto-release.jks` (SHA-256 `B4:67:CA:…:6A:5A`, alias `anikoto`) | At `DEV/anikoto-release.jks` — keep secure |
-| **Current release** | `aniyomi-en.anikoto180-v16.12-release.apk` | 286,691 B · MD5 `4aedb187c7afd83a5fad6ce103102823` · SHA256 `e014d92d…dfeee1` · published 2026-09-13 (session 58) |
+| **Current release** | `aniyomi-en.anikoto180-v16.14-release.apk` | 291,277 B · MD5 `72491ed17b4b79994af76900b2ca3927` · SHA256 `e1cf1acf…61bd78` · published 2026-10-07 (session 61) |
 
 ## Build (⚠️ GitHub Actions ONLY — never install the Android SDK in a sandbox)
 
@@ -45,9 +45,11 @@ Before every push: **tree-sitter Kotlin parse** every changed `.kt` file (recipe
 `MEMORY/workflow/sandbox/TOOLS.md` §5) — CI compile errors cost runs. Historical local-build
 guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — legacy reference only.
 
-## Current status (v16.12 Build 12, session 58) — ✅ ALL FEATURES WORKING (user-confirmed)
+## Current status (v16.14 Build 14, session 61) — ✅ RELEASED (downloads page); dist-repo update pending user testing
 
-- **Playback fix (s52)**: megaplay.buzz encrypted its getSources response ("enc" AES-256-CBC blob — playback was 100% broken on megaplay servers). Extension now tries `getSourcesNew` (plaintext, all hosts) first, then `getSources` + AES-256-CBC decrypt of the `enc` blob (`video/MegaPlayDecrypt.kt`, key/IV extracted from megaplay's own `newclient.min.js`). Mirror hosts (megap.shiora.site / megap.mikora.top / s1.akirax.buzz) are WAF-free; segments moved to tiktokcdn with a 252-byte PNG prefix (existing stripper handles it).
+- **WebView URL fix (s61)**: "Open in WebView" on an ANIME previously opened `baseUrl + bare-slug` → the site's 404 page ("random URL" bug). `getAnimeUrl()` now overridden → `$baseUrl/watch/<slug>` (live-verified 200). `animeSlug()` normalizer applied at every anime-url entry point (details/episodes/WebView/search parsing) — domain-independent, tolerant of old persisted shapes and of the site ever serving foreign-domain listing links. (The EPISODE-level `getEpisodeUrl` was already correct since s43.)
+- **Quality-list robustness (s61)**: the CDN-candidate loop no longer locks in a truncated quality list when a candidate loads only SOME of the master's variants (transient CDN failure) — best-partial fallback + remaining candidates; fast paths unchanged. "Only 1080p" on some shows is a SOURCE limitation (single-variant masters, live-verified: beyblade-x-aj6fn = 1080p-only, yuu-gi-ou-go-rush = 720p-only — identical on all mirrors/servers/candidates; the site's own player shows the same) and now logs an explanatory line.
+- **Playback fix (s52)**: megaplay.buzz encrypted its getSources response ("enc" AES-256-CBC blob — playback was 100% broken on megaplay servers). Extension now tries `getSourcesNew` (plaintext, all hosts) first, then `getSources` + AES-256-CBC decrypt of the `enc` blob (`video/MegaPlayDecrypt.kt`, key/IV extracted from megaplay's own `newclient.min.js`). Re-verified live 2026-10-07 (s61): constants still valid; ALL CDN candidates (bcdn/tcdn/default) currently serve master+variants+segments to plain TLS.
 
 - **Preferred domain (s52)**: user-selectable baseUrl — 6 official/verified domains (anikototv.to, anikoto.cz, anikoto.me, anikoto.net, anikototv.se, anikototv.com) in Settings → Playback. Source ID is domain-independent (no orphaned anime); episode URLs are relative so saved episodes follow the domain.
 - **Catalog**: popular, latest, search (paginated `/filter?keyword=`, 30/page, filters work with search), filters, details, episode list. Cover images load.
@@ -63,7 +65,7 @@ guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — leg
 - **Promo line**: "Thank the Confused_creature_180" appended to every anime description.
 - **Logging**: logcat-only (tag "Anikoto"), no file I/O, no permissions.
 - **R8 release builds**: proguard rules keep `$$serializer` classes (prevents serialization crash).
-- **Signed release APK**: reproducible (v16.12: 286,691 bytes).
+- **Signed release APK**: reproducible (v16.14: 291,277 bytes).
 
 ## Key file locations (relative to `EXTENSIONS/anikoto/`)
 

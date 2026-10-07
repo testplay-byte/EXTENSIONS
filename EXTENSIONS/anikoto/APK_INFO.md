@@ -1,7 +1,7 @@
 # AniKoto 180 — Extension APK Information Sheet
 
-> Generated: 2026-06-26 (session 49) · Updated: 2026-10-07 (session 62) · By: Confused_Creature (180)
-> Current version: v16.15 (versionCode=15) — RELEASE, published 2026-10-07
+> Generated: 2026-06-26 (session 49) · Updated: 2026-10-07 (session 63) · By: Confused_Creature (180)
+> Current version: v16.16 (versionCode=16) — RELEASE, published 2026-10-07
 
 ---
 
@@ -9,13 +9,13 @@
 
 | Property | Value |
 |----------|-------|
-| **File name** | `aniyomi-en.anikoto180-v16.15-release.apk` |
-| **File size** | 291,960 B (~285 KB) |
-| **MD5** | `b76ff551bd89822a60572283580bd401` |
-| **SHA-256 (file)** | `a6b7d551a32e7ad252052ec9205bea76f05a6f6617fd0d9f9cb896e918f8ed6f` |
+| **File name** | `aniyomi-en.anikoto180-v16.16-release.apk` |
+| **File size** | 296,659 B (~290 KB) |
+| **MD5** | `1f8d20cdb33aab32dc952aae073e9e75` |
+| **SHA-256 (file)** | `723f4aa2872932cd731020544493871f5b5bb029a0fb7a9422d79f20d253ed5f` |
 | **App label** | AniKoto 180 |
 | **Package name** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` |
-| **Version** | `16.15` (versionCode=15) |
+| **Version** | `16.16` (versionCode=16) |
 | **Extension versionId** | `11` (STABLE — do NOT change) |
 | **Extension class** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` (FULL path, no leading dot) |
 | **ext-lib version** | 16 (versionName must start with "16.") |
@@ -206,6 +206,7 @@ Thank the Confused_creature_180
 | "Currently: %s" on all dropdowns | Present ✅ |
 | v16.14 WebView-URL fix markers (`getAnimeUrl`, `animeSlug`, `SINGLE variant`, `best partial`) | Present ✅ (session 61 dex check) |
 | v16.15 domain-logic + ladder-scan markers (`already-verified master`, `richer ladder`, `About missing qualities`, `Vidstream-1`) | Present ✅ (session 62 dex check) |
+| v16.16 yuzono-alignment markers (`animeWatchPath`, `docHeaders`, `resolveDirectM3u8`, `mapperServerDisplayName`, `HOST_MAP`, MegaPlay HMAC secret) | Present ✅ (session 63 dex check) |
 | v16.12 Smart Search strings (`wrap the anime title in`, `Copy response`, `gemini-3.1-flash-lite`, `Your phrase`, `Query: `) | Present ✅ (session 58 dex check) |
 
 ---
@@ -244,7 +245,7 @@ Thank the Confused_creature_180
 # Full recipe: EXTENSIONS/anikoto/AGENT_ONBOARDING.md §5–§6
 
 # Verify a built APK's signature locally (no SDK build needed):
-keytool -printcert -jarfile aniyomi-en.anikoto180-v16.15-release.apk | grep SHA256
+keytool -printcert -jarfile aniyomi-en.anikoto180-v16.16-release.apk | grep SHA256
 # Should show: B4:67:CA:64:0B:A7:...:6A:5A
 ```
 
@@ -270,4 +271,4 @@ keytool -printcert -jarfile aniyomi-en.anikoto180-v16.15-release.apk | grep SHA2
 
 ---
 
-*This document contains all critical information about the AniKoto 180 extension APK v16.15. Keep it with the keystore backup.*
+*This document contains all critical information about the AniKoto 180 extension APK v16.16. Keep it with the keystore backup.*

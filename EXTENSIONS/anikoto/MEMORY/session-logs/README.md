@@ -51,3 +51,5 @@ What this session set out to do.
 ## Current contents
 
 - `2026-06-22_session-01_initial-setup.md` — project scaffolding (this session)
+
+- [2026-10-07_session-63_yuzono-alignment-webview-root-fix.md](2026-10-07_session-63_yuzono-alignment-webview-root-fix.md) — v16.16 RELEASE: anime.url → /watch/<slug> storage (WebView root fix), per-request docHeaders, mapper pipeline un-deaded, MegaPlay HMAC token (yuzono parity), resolution source-limitation re-verified; sub-agent review loop + independent verifier.

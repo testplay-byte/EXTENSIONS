@@ -17,11 +17,11 @@
 | **versionId** | `11` (STABLE) | Bumping orphans saved anime. NEVER change. |
 | **Package** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` | Distinguishes from other publishers (s49) |
 | **extClass** | `eu.kanade.tachiyomi.animeextension.en.anikoto.Anikoto` | FULL path, no leading dot (applicationId ≠ source package) |
-| **versionCode** | `15` | Bump per build. ★ Test-build numbers are NOT reserved (s58): v16.13 was reused as a test-build number by s57 AND s60; the release after them took v16.14 |
-| **versionName** | `16.15` | = `16.<extVersionCode>` (auto-derived) |
+| **versionCode** | `16` | Bump per build. ★ Test-build numbers are NOT reserved (s58): v16.13 was reused as a test-build number by s57 AND s60; the release after them took v16.14 |
+| **versionName** | `16.16` | = `16.<extVersionCode>` (auto-derived) |
 | **Target site** | `anikototv.to` | |
 | **Signing key** | `anikoto-release.jks` (SHA-256 `B4:67:CA:…:6A:5A`, alias `anikoto`) | At `DEV/anikoto-release.jks` — keep secure |
-| **Current release** | `aniyomi-en.anikoto180-v16.15-release.apk` | 291,960 B · MD5 `b76ff551bd89822a60572283580bd401` · SHA256 `a6b7d551…8f8ed6f` · published 2026-10-07 (session 62) |
+| **Current release** | `aniyomi-en.anikoto180-v16.16-release.apk` | 296,659 B · MD5 `1f8d20cdb33aab32dc952aae073e9e75` · SHA256 `723f4aa2…ed5f` · published 2026-10-07 (session 63) |
 
 ## Build (⚠️ GitHub Actions ONLY — never install the Android SDK in a sandbox)
 
@@ -45,7 +45,14 @@ Before every push: **tree-sitter Kotlin parse** every changed `.kt` file (recipe
 `MEMORY/workflow/sandbox/TOOLS.md` §5) — CI compile errors cost runs. Historical local-build
 guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — legacy reference only.
 
-## Current status (v16.15 Build 15, session 62) — ✅ RELEASED (downloads page); dist-repo update pending user testing
+## Current status (v16.16 Build 16, session 63) — ✅ RELEASED (build-repo release + downloads page); dist-repo update pending user testing
+
+- **WebView URL root fix (s63, user-reported: "got https://anikoto.cz/<slug>, expected /watch/<slug>")**: anime.url is now STORED as the site path `/watch/<slug>` — the yuzono/anikototheme reference behavior — instead of the bare slug. Live-verified 2026-10-07: the site 404s EVERY path without `/watch/`, so any app-side construction of `baseUrl + "/" + anime.url` (forks that bypass `getAnimeUrl`) produced exactly the reported bad URL. Now EVERY construction lands on the real page; older persisted shapes (bare slug from ≤v16.15, `/watch/…`, full URLs, malformed hybrids) still normalize via `animeSlug()`/`animeWatchPath()` (query-string safe too).
+- **Fresh per-request headers (s63)**: the base class `headers` val is lazy and froze `Referer: <first-domain>` for the whole process — after a Preferred-domain switch request URLs were correct (s62 live getter) but the Referer leaked the old domain. Popular/latest/search/details now build headers each request (`docHeaders()`).
+- **Mapper pipeline un-deaded (s63)**: live recon proved the mapper returns keys like `Kiwi` (no trailing dash) while `parseMapperResponse` required `endsWith("-")` → ZERO tokens ever parsed; and mapper tokens are FULL player URLs but were fed through `/ajax/server?get=` as link-ids. Now: keys accepted with/without dash, `status`/`error`/`message` skipped, names mapped gogoanime→Vidstream / anivibe→Vibe-Stream / kiwi*→Kiwi-Stream (yuzono parity), ALL streaming mapper servers surfaced (not just Kiwi), tokens used directly as embed URLs, mewcdn `HOST_MAP` honored, and a new direct-m3u8 Flow C handles plain-HLS mapper entries. (Live mapper currently offers only Kiwi DOWNLOAD links — see resolutions note.)
+- **MegaPlay CDN HMAC token (s63, yuzono parity)**: decrypted getSources m3u8 URLs get the same `?token=` HMAC-SHA256 signature the site's own player appends (secret from yuzono maintainers). Live A/B 2026-10-07: no behavioral difference today (same master) — future-proofing against the CDN starting to require it.
+- **Resolutions (user report, re-verified 2026-10-07)**: single-quality episodes (Sakamoto Days etc.) are a SOURCE limitation — every server entry × s-candidate × endpoint × BOTH domains, with AND without the CDN token, returns the same single-variant 1080p master; the site's extra qualities exist only in its DOWNLOAD menu (Kiwi/pahe 360p/720p/1080p links → download page, not a stream); other shows list 1080/720/360. Settings note updated with verified wording.
+- **Review process (s63)**: sub-agent adversarial review loop ×2 iterations (final verdict CONFIDENT SOLVED: fixed M1 Kiwi-variant referer mismatch, m2 direct-m3u8 mapper branch, m3 token-aware dedup, stale comments) + an independent second verifier (verdict SHIP IT; verified URL-normalizer semantics, mapper end-to-end, HMAC parity, regression sweep).
 
 - **Preferred-domain logic fix (s62)**: `baseUrl` was `by lazy` → the preference was read ONCE per process, so changing Settings → Playback → Preferred domain had NO visible effect (browsing AND "Open in WebView" stayed on the old domain until force-stop) — the user's "it does not get applied" report. Now a live getter that re-reads on every access; domain switches apply to the very next request. All 6 mirror domains re-verified live (HTTP 200).
 - **Thin-ladder richness scan (s62)**: a full CDN-candidate win with ≤2 variants no longer ends the candidate scan — remaining s-candidates are probed (seen-master dedup keeps cost ≈1 getSources call each) and the RICHEST full result wins; >2-variant ladders still break immediately (zero extra requests). Live-verified 2026-10-07 on Sakamoto Days ep-4: the show is 1080p-only at SOURCE on every candidate/endpoint (raw master = one #EXT-X-STREAM-INF + I-FRAME track; sub 2226 / dub 2217; all 6 servers → megaplay; getSources carries no quality map) while Dorohedoro S2 / Dr Stone / Tensura S4 etc. still list 1080/720/360 — extraction not broken; the site's other qualities are download-only pahe file links (not streams). Settings gains an "About missing qualities" note; preferred-server list gains the current live name "Vidstream-1".
@@ -67,7 +74,7 @@ guides live at repo-root `MEMORY/guides/` (e.g. `04-build-checklist.md`) — leg
 - **Promo line**: "Thank the Confused_creature_180" appended to every anime description.
 - **Logging**: logcat-only (tag "Anikoto"), no file I/O, no permissions.
 - **R8 release builds**: proguard rules keep `$$serializer` classes (prevents serialization crash).
-- **Signed release APK**: reproducible (v16.15: 291,960 bytes).
+- **Signed release APK**: reproducible (v16.16: 296,659 bytes).
 
 ## Key file locations (relative to `EXTENSIONS/anikoto/`)
 

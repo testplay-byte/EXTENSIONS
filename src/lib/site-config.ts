@@ -45,8 +45,8 @@ export const EXTENSIONS: ExtensionMeta[] = [
     name: "AniKoto 180",
     tagline:
       "Anime streaming extension for anikototv.to — 4 video servers + Kiwi-Stream, smart search, episode metadata, fork compatibility.",
-    version: "v16.15",
-    build: 15,
+    version: "v16.16",
+    build: 16,
     date: "October 7, 2026",
     status: "stable",
     // ★ s62: the Release workflow publishes only the signed RELEASE APK for AniKoto
@@ -56,7 +56,7 @@ export const EXTENSIONS: ExtensionMeta[] = [
     letter: "AK",
     site: "anikototv.to",
     accent: "lime",
-    features: ["6 site domains", "Smart search", "Instant domain switching", "Episode metadata"],
+    features: ["WebView URL fix", "Yuzono-aligned mapper", "Instant domain switching", "Smart search"],
   },
   {
     id: "animepahe",

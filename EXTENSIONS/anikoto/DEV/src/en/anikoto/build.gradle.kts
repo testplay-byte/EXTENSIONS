@@ -60,7 +60,35 @@ android {
         //     EVERY candidate/endpoint; other shows list 1080/720/360. A settings note
         //     ("About missing qualities") explains the source limitation to users, and the
         //     preferred-server list gains the current live name "Vidstream-1".
-        val extVersionCode = 15
+        // ★ session 63 (v16.16) — yuzono-reference alignment + WebView URL root fix:
+        // (1) anime.url now stored as the SITE PATH "/watch/<slug>" (the yuzono/anikototheme
+        //     reference behavior) instead of the bare slug. Live-verified 2026-10-07: the
+        //     site 404s every non-/watch/ path, so any app-side construction of
+        //     baseUrl + "/" + anime.url (forks that bypass getAnimeUrl) produced the exact
+        //     user-reported bad WebView URL (e.g. https://anikoto.cz/<slug>). With the site
+        //     path, EVERY construction lands on the real page; older persisted shapes
+        //     (bare slug, /watch/…, full URLs) still normalize via animeSlug/animeWatchPath.
+        // (2) Fresh per-request document headers (docHeaders()) — the base class `headers`
+        //     val is lazy and froze the Referer on the FIRST domain, so after a
+        //     Preferred-domain switch request URLs were correct but the Referer leaked the
+        //     old domain. Popular/latest/search/details now build headers each request.
+        // (3) Mapper pipeline un-deaded: the live mapper names servers WITHOUT a trailing
+        //     dash ("Kiwi") — the old parser required "endsWith('-')" and matched nothing;
+        //     mapper tokens are FULL player URLs but were fed through /ajax/server?get=.
+        //     Now: parser accepts both key shapes, skips status/error/message, maps names
+        //     gogoanime→Vidstream / anivibe→Vibe-Stream / kiwi*→Kiwi-Stream (yuzono
+        //     parity), ALL streaming mapper servers are surfaced, tokens are used directly
+        //     as embed URLs, mewcdn HOST_MAP is honored, and a direct-m3u8 Flow C handles
+        //     plain-HLS mapper entries.
+        // (4) MegaPlay CDN HMAC token (yuzono parity): decrypted getSources m3u8 URLs get
+        //     the same ?token= signature the site's own player appends (secret from the
+        //     yuzono maintainers; live A/B 2026-10-07 shows no behavioral difference TODAY
+        //     — future-proofing against the CDN starting to require it).
+        // Resolutions note: single-quality episodes (Sakamoto Days etc.) are a SOURCE
+        //     limitation — re-verified 2026-10-07 across every server × CDN candidate ×
+        //     endpoint × both domains, with and without the CDN token; the site's other
+        //     qualities are download-only pahe links (settings note updated).
+        val extVersionCode = 16
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

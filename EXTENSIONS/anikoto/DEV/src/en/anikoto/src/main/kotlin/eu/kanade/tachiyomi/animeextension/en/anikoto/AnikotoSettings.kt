@@ -223,21 +223,24 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
                 summary = "Currently: %s"
             }.also(::addPreference)
 
-            // ★ session 62: user-facing explanation for the recurring "only one/two
-            // resolutions" reports. Live-verified 2026-10-07: several shows (e.g. Sakamoto
-            // Days, Beyblade X) ship a SINGLE-variant 1080p-only HLS master — the site's own
-            // player shows the same single quality, so nothing was dropped by the extension.
-            // The site's other qualities for such shows exist ONLY as file-host downloads
-            // (360p/720p/1080p pahe links), which are not streamable. Sub and Dub appear as
-            // separate entries by design.
+            // ★ session 62/63: user-facing explanation for the recurring "only one/two
+            // resolutions" reports. Live-verified 2026-10-07 (both .to and .cz, every
+            // server × CDN candidate × endpoint, with/without the CDN token): several shows
+            // (e.g. Sakamoto Days, Beyblade X) ship a SINGLE-variant 1080p-only HLS master —
+            // the site's own player shows the same single quality, so nothing was dropped by
+            // the extension. The site's other qualities for such shows exist ONLY in the
+            // download menu (Kiwi/pahe 360p/720p/1080p file links), which are not streams —
+            // verified: those links open a download page, not a video file. Sub and Dub
+            // appear as separate entries by design (same file, different audio).
             Preference(context).apply {
                 key = "pref_quality_note"
                 isSelectable = false
                 title = "About missing qualities"
                 summary = "Some shows/episodes are single-quality at the source — the site's " +
                     "own player shows the same single quality (e.g. 1080p only). The site's " +
-                    "other qualities are download-only files, not streams. Sub and Dub count " +
-                    "as separate entries. This is a site limitation, not an extension bug."
+                    "other qualities are in its DOWNLOAD menu only (360p/720p/1080p file " +
+                    "links), which cannot be streamed. Sub and Dub count as separate entries. " +
+                    "This is a site limitation, not an extension bug."
             }.also(::addPreference)
         }
 
@@ -248,9 +251,11 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
 
             SwitchPreferenceCompat(context).apply {
                 key = PREF_ENABLE_KIWI_KEY
-                title = "Enable Kiwi-Stream"
-                summaryOn = "Fetching Kiwi-Stream from external sources"
-                summaryOff = "Kiwi-Stream disabled"
+                title = "Enable mapper servers"
+                // ★ session 63: the toggle now gates the WHOLE mapper API (it can return
+                // Kiwi-Stream plus, on some shows, Vidstream / Vibe-Stream entries).
+                summaryOn = "Fetching Kiwi-Stream and other mapper servers from external sources"
+                summaryOff = "Mapper servers disabled (primary site servers only)"
                 setDefaultValue(PREF_ENABLE_KIWI_DEFAULT)
             }.also(::addPreference)
         }

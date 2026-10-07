@@ -61,15 +61,22 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     //   now applies to the very next request — no restart needed. All other settings
     //   already worked this way (typed getters re-read each time), which is why ONLY the
     //   domain appeared "stuck".
+    //   ★ session 63 follow-up: the base class `headers` val was ALSO frozen (lazy) — it
+    //   stamped `Referer: $baseUrl/` at first use. All document requests now build fresh
+    //   headers per request via [docHeaders], so the Referer follows the domain switch too.
     //
-    // Safe design points (unchanged):
+    // Safe design points:
     // - The source ID = MD5("anikoto 180/en/11") derives from name/lang/versionId — NOT the
     //   domain — so switching mirrors never orphans saved anime.
-    // - anime.url is stored as the bare slug and episode URLs as relative paths
+    // - ★ session 63: anime.url is stored as the site path "/watch/<slug>" (yuzono
+    //   reference behavior) and episode URLs as relative paths
     //   ("/watch/slug/ep-N#fragment") by design, so previously saved items resolve against
-    //   the newly selected domain automatically.
+    //   the newly selected domain automatically, and app-side WebView URL constructions
+    //   (with or without getAnimeUrl) land on real pages. animeSlug()/animeWatchPath()
+    //   still normalize every older persisted shape (bare slug from ≤v16.15, /watch/…,
+    //   full URLs, malformed hybrids).
     // - try/catch: if preferences are somehow not ready yet (Injekt not initialized), fall
-    //   back to the primary domain instead of crashing; the next access retries the lazy.
+    //   back to the primary domain instead of crashing; the next access retries the read.
     override val baseUrl: String
         get() = try {
             settings.preferredDomain.trim().takeIf { it.isNotEmpty() } ?: DEFAULT_BASE_URL
@@ -168,11 +175,25 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     // ── Headers ──────────────────────────────────────────────────────────
+    // ★ session 63: FRESH headers on every request.
+    // ROOT CAUSE (domain-preference "half-applied" reports): the base class `headers` val
+    // is LAZY — it calls headersBuilder() ONCE and freezes the result for the whole
+    // process. headersBuilder() stamps `Referer: $baseUrl/`, so after a Preferred-domain
+    // switch the frozen Referer kept pointing at the OLD domain for every later request
+    // (request URLs were correct — live getter — but the Referer leaked the old domain,
+    // which some site edges use for cache keys/routing). Reference implementation
+    // (yuzono/anikototheme) rebuilds docHeaders whenever the domain changes; since this
+    // extension's baseUrl is a live getter with no setter to observe, the equivalent
+    // guarantee is to build headers fresh on every request (cheap — just a Headers.Builder).
+    // The frozen base `headers` val is no longer used anywhere in this file.
     override fun headersBuilder(): Headers.Builder = super.headersBuilder()
         .set("User-Agent", "Mozilla/5.0")
         .set("Referer", "$baseUrl/")
         .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
         .set("Accept-Language", "en-US,en;q=0.9")
+
+    /** ★ session 63: per-request document headers — always reflects the CURRENT domain. */
+    private fun docHeaders(): Headers = headersBuilder().build()
 
     private fun xhrHeaders(referer: String = "$baseUrl/"): Headers = headersBuilder()
         .set("Referer", referer)
@@ -181,13 +202,13 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ── Popular ──────────────────────────────────────────────────────────
     override fun popularAnimeRequest(page: Int): Request =
-        GET("$baseUrl/most-viewed?page=$page", headers)
+        GET("$baseUrl/most-viewed?page=$page", docHeaders())
 
     override fun popularAnimeParse(response: Response): AnimesPage = parseFilterResults(response)
 
     // ── Latest ───────────────────────────────────────────────────────────
     override fun latestUpdatesRequest(page: Int): Request =
-        GET("$baseUrl/latest-updated?page=$page", headers)
+        GET("$baseUrl/latest-updated?page=$page", docHeaders())
 
     override fun latestUpdatesParse(response: Response): AnimesPage = parseFilterResults(response)
 
@@ -198,7 +219,7 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     // accepts an optional `keyword` param that works for both empty and non-empty queries,
     // AND respects all filters below — so search + filters work together. Verified live.
     override fun searchAnimeRequest(page: Int, query: String, filters: AnimeFilterList): Request =
-        GET("$baseUrl/filter?keyword=${URLEncoder.encode(query, "UTF-8")}&${AnikotoFilters.buildQuery(filters)}&page=$page", headers)
+        GET("$baseUrl/filter?keyword=${URLEncoder.encode(query, "UTF-8")}&${AnikotoFilters.buildQuery(filters)}&page=$page", docHeaders())
 
     override fun searchAnimeParse(response: Response): AnimesPage = parseFilterResults(response)
 
@@ -369,12 +390,22 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         // string when the delimiter is absent) — corrupting anime.url into a malformed
         // hybrid ("https://other…https://…") that broke details requests AND WebView.
         // Extract the /watch/ path directly from the raw href instead — domain-independent.
-        url = if (href.contains("/watch/")) {
-            animeSlug(href)
-        } else {
-            // Legacy fallback for hrefs without /watch/ (not seen on the live site).
-            animeSlug(if (href.startsWith("http")) href.substringAfter(baseUrl) else href)
-        }
+        //
+        // ★ session 63 (v16.16): store the SITE PATH "/watch/<slug>" instead of the bare
+        // slug — the yuzono/anikototheme reference behavior. WHY THIS FIXES "Open in
+        // WebView": anime.url is consumed BOTH by this extension AND by app-side code.
+        // The app's details screen may build the WebView URL as `baseUrl + anime.url`
+        // (ext-lib default) or `baseUrl + "/" + anime.url` (several forks hardcode this
+        // and never call getAnimeUrl). With bare-slug storage those constructions produced
+        // `https://anikoto.cz/<slug>` — live-verified 2026-10-07: the site 404s every
+        // non-/watch/ path (HTTP 404 Error page) — EXACTLY the user-reported bad WebView
+        // URL. With "/watch/<slug>" storage, EVERY construction lands on the real page:
+        //   baseUrl + "/watch/<slug>"  → correct
+        //   baseUrl + "/" + "/watch/<slug>" → double slash, normalized by WebView — correct
+        //   this.getAnimeUrl() → normalizes via animeWatchPath — correct
+        // Old persisted shapes (bare slug, /watch/<slug>/ep-N, full URLs, malformed
+        // hybrids) keep working through [animeWatchPath]/[animeSlug] normalization.
+        url = animeWatchPath(href)
         title = link.selectFirst(".name")?.text()?.trim()
             ?: link.text()?.trim() ?: "Unknown"
         // Find img: check el itself, then descendants, then parent (for sibling img)
@@ -385,32 +416,60 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
 
     // ── Anime Details ────────────────────────────────────────────────────
     /**
-     * ★ session 61: normalize ANY persisted anime.url shape to the bare site slug.
+     * ★ session 61/63: normalize ANY persisted anime.url shape to the bare site slug.
      *
-     * Current code stores the bare slug ("beyblade-x-aj6fn"), but older app versions may
-     * have persisted other shapes ("/watch/<slug>", "/watch/<slug>/ep-N", or a full URL).
-     * Normalizing at every entry point keeps details/episode/WebView requests correct even
-     * for anime saved by older builds — and protects against the site ever serving listing
-     * links from a different domain than our request domain.
+     * Session 63 storage is the site path "/watch/<slug>", but older app versions may
+     * have persisted other shapes (bare slug, "/watch/<slug>", "/watch/<slug>/ep-N",
+     * or a full URL). [animeSlug] feeds request builders that assemble "/watch/…"
+     * paths themselves; [animeWatchPath] produces the storage/canonical form.
      */
     private fun animeSlug(rawUrl: String): String {
-        val raw = rawUrl.trim().trimEnd('/')
+        val raw = rawUrl.trim().substringBefore('?').trimEnd('/')
         return when {
-            raw.startsWith("http") -> raw.substringAfter("/watch/").substringBefore("/ep-")
+            raw.startsWith("http") ->
+                if (raw.contains("/watch/")) {
+                    raw.substringAfter("/watch/").substringBefore("/ep-").substringAfterLast('/')
+                } else {
+                    // Malformed legacy URL without /watch/ — the slug is the last segment.
+                    raw.substringAfterLast('/').substringBefore("/ep-")
+                }
             raw.startsWith("/watch/") -> raw.removePrefix("/watch/").substringBefore("/ep-")
             else -> raw.substringBefore("/ep-")
         }
     }
 
+    /**
+     * ★ session 63: normalize ANY input (listing href, persisted anime.url in ANY legacy
+     * shape, full URL) to the canonical storage form "/watch/<slug>".
+     * - "https://any.domain/watch/slug/ep-4" → "/watch/slug"
+     * - "/watch/slug/ep-4" → "/watch/slug"
+     * - "/watch/slug" → "/watch/slug"
+     * - "slug" → "/watch/slug"
+     * Domain-independent: works no matter which mirror the href came from.
+     */
+    private fun animeWatchPath(rawUrl: String): String {
+        val raw = rawUrl.trim().substringBefore('?').trimEnd('/')
+        return when {
+            raw.contains("/watch/") -> {
+                val after = raw.substringAfter("/watch/").substringBefore("/ep-")
+                val slug = after.substringAfterLast('/') // strip any residual domain fragment
+                "/watch/$slug"
+            }
+            else -> "/watch/${animeSlug(raw)}"
+        }
+    }
+
     override fun animeDetailsRequest(anime: SAnime): Request =
-        GET("$baseUrl/watch/${animeSlug(anime.url)}/ep-1", headers)
+        GET("$baseUrl${animeWatchPath(anime.url)}/ep-1", docHeaders())
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
         return SAnime.create().apply {
             val binfo = doc.selectFirst("#w-info .binfo") ?: doc.selectFirst("div.binfo") ?: return@apply
-            url = response.request.url.toString()
-                .substringAfter("/watch/").substringBefore("/ep-")
+            // ★ session 63: store the canonical site path (see parseSearchItem) instead of
+            // the bare slug — makes every app-side WebView construction work.
+            url = "/watch/" + (Regex("/watch/([^/]+)").find(response.request.url.encodedPath)?.groupValues?.get(1)
+                ?: animeSlug(response.request.url.toString()))
             title = binfo.selectFirst("h1.title")?.text()?.trim() ?: ""
             thumbnail_url = binfo.selectFirst("div.poster img")?.attr("abs:src")
             val altNames = binfo.selectFirst("div.names")?.text()
@@ -463,17 +522,24 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
      * ★ session 61: Override getAnimeUrl — what the app's "Open in WebView" opens for an ANIME.
      *
      * ROOT CAUSE of the reported "WebView opens a random/incorrect URL": the default
-     * implementation returns `baseUrl + anime.url`, but this extension stores anime.url as
-     * the BARE SLUG (e.g. "the-exiled-heavy-knight-…") — so the default produced
+     * implementation returns `baseUrl + anime.url`, but this extension used to store
+     * anime.url as the BARE SLUG (e.g. "the-exiled-heavy-knight-…") — so the default produced
      * `https://anikototv.to/<slug>`, which is NOT a real page (live-verified 2026-10-07:
      * the site returns its 404 "Error" page for /<slug>; the real page is /watch/<slug>).
      * The episode-level counterpart [getEpisodeUrl] was already correct (session 43);
      * this fixes the anime-level half.
      *
+     * ★ session 63 (v16.16): anime.url is NOW STORED as "/watch/<slug>" (the yuzono
+     * reference behavior), so even forks that bypass this override and hardcode
+     * `baseUrl + anime.url` / `baseUrl + "/" + anime.url` land on the real page.
+     * This override remains as the authoritative normalizer: it accepts ANY persisted
+     * shape (bare slug from old builds, "/watch/<slug>", "/watch/<slug>/ep-N", full URLs)
+     * and returns the canonical watch URL on the CURRENT preferred domain.
+     *
      * /watch/<slug> (no /ep- part) is live-verified 200 and renders the full watch page.
      */
     override fun getAnimeUrl(anime: SAnime): String {
-        return "$baseUrl/watch/${animeSlug(anime.url)}"
+        return "$baseUrl${animeWatchPath(anime.url)}"
     }
 
     // ── Episode List (with RC4 vrf + EpisodeMeta encoding) ───────────────
@@ -696,7 +762,7 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             val pathB = async {
                 val mapperTasks = mutableListOf<HosterTask>()
                 if (!enableKiwi) {
-                    AnikotoLog.i("PATH B: skipped (Kiwi-Stream disabled in settings)")
+                    AnikotoLog.i("PATH B: skipped (mapper servers disabled in settings)")
                 } else if (meta.malId.isNotEmpty() && meta.epNum.isNotEmpty() && meta.timestamp.isNotEmpty()) {
                     AnikotoLog.d("PATH B: fetching mapper for mal=${meta.malId} ep=${meta.epNum} ts=${meta.timestamp}")
                     try {
@@ -710,21 +776,33 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
                         val mapperJson = json.parseToJsonElement(mapperBody) as? kotlinx.serialization.json.JsonObject
                         if (mapperJson != null) {
                             val tokens = parseMapperResponse(mapperJson)
-                            AnikotoLog.i("PATH B: parsed ${tokens.size} mapper tokens")
+                            AnikotoLog.i("PATH B: parsed ${tokens.size} mapper streaming tokens (keys=${mapperJson.keys.filter { !it.equals("status", true) }})")
                             if (tokens.isEmpty()) {
-                                // ★ session 40: log when Kiwi-Stream only has download (no streaming)
-                                val hasKiwiDownload = mapperJson.keys.any { it == "Kiwi-Stream" }
-                                if (hasKiwiDownload) {
-                                    AnikotoLog.i("PATH B: Kiwi-Stream has download links but no streaming URL — streaming not available for this episode")
+                                // ★ session 63: explain the download-only case with the REAL key
+                                // names (the live mapper uses "Kiwi", not "Kiwi-Stream").
+                                val hasDownloadOnly = mapperJson.keys.any { key ->
+                                    !key.equals("status", true) &&
+                                        (mapperJson[key] as? kotlinx.serialization.json.JsonObject)?.keys?.any { audio ->
+                                            audio == "sub" || audio == "dub"
+                                        } == true
+                                }
+                                if (hasDownloadOnly) {
+                                    AnikotoLog.i("PATH B: mapper servers present but download-only (no streaming URL) — nothing to add")
                                 } else {
-                                    AnikotoLog.i("PATH B: no Kiwi-Stream entries found in mapper response")
+                                    AnikotoLog.i("PATH B: no streaming mapper entries found in mapper response")
                                 }
                             }
                             for (token in tokens) {
-                                AnikotoLog.d("PATH B: found [${token.audio}] ${token.serverName}- token=${AnikotoLog.trunc(token.token, 40)}")
-                                if (token.serverName != "Kiwi-Stream") continue
-                                val label = if (token.audio == "sub") "H-SUB" else "A-DUB"
-                                mapperTasks.add(HosterTask("$label - ${token.serverName}", token.token, token.audio, "mapper"))
+                                AnikotoLog.d("PATH B: found [${token.audio}] ${token.serverName} — token=${AnikotoLog.trunc(token.token, 40)}")
+                                // ★ session 63 (v16.16): take ALL mapper servers that expose a
+                                // STREAMING url — the yuzono/anikototheme reference behavior.
+                                // The old code kept only literal "Kiwi-Stream", but the live
+                                // mapper names servers "Kiwi" (no "-Stream" suffix) and can also
+                                // return gogoanime→Vidstream / anivibe→Vibe-Stream keys — all of
+                                // which were silently dropped, keeping mapper servers invisible.
+                                // Download-only entries never reach here (parseMapperResponse only
+                                // emits tokens with a streaming url).
+                                mapperTasks.add(HosterTask("${token.label} - ${token.serverName}", token.token, token.audio, "mapper"))
                             }
                         }
                     } catch (e: CancellationException) {
@@ -876,21 +954,32 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     private suspend fun resolveStreamForTask(task: HosterTask, slug: String): AudioStream? {
         AnikotoLog.i("resolveStreamForTask: START ${task.label} [${task.audioType}]")
         return try {
-            // Step 1: resolve the server link → iframe URL
-            val encToken = URLEncoder.encode(task.token, "UTF-8")
-            AnikotoLog.d("resolveStreamForTask: GET $baseUrl/ajax/server?get=${AnikotoLog.trunc(encToken, 50)}")
-            val resolveResp = client.newCall(
-                GET("$baseUrl/ajax/server?get=$encToken", xhrHeaders("$baseUrl/watch/$slug/ep-1"))
-            ).awaitSuccess()
-            val resolveJson = json.decodeFromString<ServerResponse>(resolveResp.body.string())
-            if (resolveJson.status != 200) {
-                AnikotoLog.e("resolveStreamForTask: ${task.label} — resolve status=${resolveJson.status}")
-                return null
-            }
-            val iframeUrl = resolveJson.result?.url?.takeIf { it.isNotEmpty() }
-            if (iframeUrl == null) {
-                AnikotoLog.e("resolveStreamForTask: ${task.label} — no iframe URL in response")
-                return null
+            // Step 1: resolve the server link → iframe URL.
+            // ★ session 63 (v16.16): MAPPER tasks carry the embed URL DIRECTLY (the mapper
+            // API returns full player URLs — verified live 2026-10-07 + the yuzono
+            // reference treats mapper links the same way). The old code fed them through
+            // /ajax/server?get= as if they were site link-ids, which can never resolve —
+            // the mapper path was structurally broken regardless of what the API returned.
+            val iframeUrl = if (task.source == "mapper") {
+                task.token.takeIf { it.startsWith("http") } ?: run {
+                    AnikotoLog.e("resolveStreamForTask: ${task.label} — mapper token is not a URL: ${AnikotoLog.trunc(task.token, 60)}")
+                    return null
+                }
+            } else {
+                val encToken = URLEncoder.encode(task.token, "UTF-8")
+                AnikotoLog.d("resolveStreamForTask: GET $baseUrl/ajax/server?get=${AnikotoLog.trunc(encToken, 50)}")
+                val resolveResp = client.newCall(
+                    GET("$baseUrl/ajax/server?get=$encToken", xhrHeaders("$baseUrl/watch/$slug/ep-1"))
+                ).awaitSuccess()
+                val resolveJson = json.decodeFromString<ServerResponse>(resolveResp.body.string())
+                if (resolveJson.status != 200) {
+                    AnikotoLog.e("resolveStreamForTask: ${task.label} — resolve status=${resolveJson.status}")
+                    return null
+                }
+                resolveJson.result?.url?.takeIf { it.isNotEmpty() } ?: run {
+                    AnikotoLog.e("resolveStreamForTask: ${task.label} — no iframe URL in response")
+                    return null
+                }
             }
             AnikotoLog.d("resolveStreamForTask: ${task.label} -> iframe=${AnikotoLog.trunc(iframeUrl, 80)}")
 
@@ -910,6 +999,12 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
             val host = iframeUrl.substringAfter("://").substringBefore("/")
             val hosterName = task.label.substringAfter(" - ")
             val result = when {
+                // ★ session 63 review m2: mapper entries whose URL IS the master m3u8
+                // (no player page, no data-id) — parse directly (yuzono parity).
+                iframeUrl.contains(".m3u8") -> {
+                    AnikotoLog.d("resolveStreamForTask: ${task.label} -> Flow C (direct m3u8)")
+                    extractors.resolveDirectM3u8(iframeUrl, task.audioType, hosterName, "$baseUrl/")
+                }
                 host.contains("mewcdn.online") -> {
                     AnikotoLog.d("resolveStreamForTask: ${task.label} -> Flow B (Kiwi), host=$host")
                     extractors.resolveKiwi(iframeUrl, task.audioType, hosterName)

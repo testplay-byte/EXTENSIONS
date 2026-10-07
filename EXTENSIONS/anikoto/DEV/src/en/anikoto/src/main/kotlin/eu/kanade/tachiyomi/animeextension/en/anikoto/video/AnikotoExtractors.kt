@@ -24,7 +24,7 @@ import java.util.regex.Pattern
  * Video stream extractors for Anikoto.
  * Per WORKSPACE/WORKFLOW/04_VIDEO_EXTRACTION_PLAYBACK/ANIKOTO/extraction-flows.md.
  *
- * Two flows:
+ * Three flows:
  * - [resolveVidTube] (Flow A): VidPlay-1, HD-1, Vidstream-2, VidCloud-1
  *   iframe → data-id → getSources/getSourcesNew → master m3u8 → variants → segments
  *   ★ session 27: unified to getSources (works on all 3 hosts with the type param).
@@ -45,6 +45,11 @@ import java.util.regex.Pattern
  *   master fetcher.
  * - [resolveKiwi] (Flow B): Kiwi-Stream
  *   iframe URL#<base64-fragment> → decode → direct m3u8 → variants → segments
+ *   ★ session 63: mewcdn HOST_MAP support (player page can remap the m3u8 host).
+ * - [resolveDirectM3u8] (Flow C): mapper servers that hand out plain master-m3u8 URLs
+ *   (no player page, no data-id) — master + variants parsed directly (yuzono parity).
+ *   ★ session 63: DECRYPTED megaplay m3u8 URLs get the site player's HMAC CDN token
+ *   appended ([addMegaPlayToken] via [parseSourcesBody], enc-shape only).
  */
 class AnikotoExtractors(
     private val client: OkHttpClient,
@@ -137,6 +142,16 @@ class AnikotoExtractors(
      * (verified live session 52):
      * - plaintext: `{"sources":{"file":"https://...m3u8"},"tracks":[...]}`
      * - encrypted: `{"tracks":[...],"enc":"<base64url AES blob>"}` → decrypt → `{"file":"..."}`
+     *
+     * ★ session 63 (v16.16): MegaPlay CDN TOKEN — yuzono/anikototheme parity.
+     * The site's own player signs every DECRYPTED m3u8 URL with an HMAC-SHA256 token
+     * (secret extracted from megaplay's client bundle by the yuzono maintainers):
+     *   payload = "<epoch+90s>|<pathKey>"   pathKey = the two 32-hex path segments, lowercased
+     *   token   = base64url(payload) + "." + base64url(HMAC-SHA256(secret, payload))
+     * Live test 2026-10-07 (Sakamoto ep-4): the CDN currently serves the SAME master with
+     * and without the token — but yuzono ships it, it is what the site player does, it is
+     * free when unused, and it future-proofs against the CDN starting to REQUIRE it (a
+     * likely cause of future "single-variant / 403 master" regressions).
      */
     private fun parseSourcesBody(body: String): SourcesData? {
         val sources = json.decodeFromString(VidTubeSourcesResponse.serializer(), body)
@@ -155,7 +170,41 @@ class AnikotoExtractors(
             AnikotoLog.e("resolveVidTube: decrypted enc JSON parse FAILED — ${e.message?.take(80)}")
             null
         }
-        return file?.takeIf { it.startsWith("http") }?.let { SourcesData(it, sources.tracks) }
+        return file?.takeIf { it.startsWith("http") }?.let { SourcesData(addMegaPlayToken(it), sources.tracks) }
+    }
+
+    /**
+     * ★ session 63: append the MegaPlay HMAC token to a decrypted m3u8 URL.
+     * Mirrors yuzono's processMegaPlaySource: only for token-less URLs whose path carries
+     * the two 32-hex segments (the megaplay CDN signature). Any failure returns the URL
+     * unchanged — extraction then behaves exactly as before this feature existed.
+     */
+    private fun addMegaPlayToken(m3u8: String): String {
+        if (m3u8.contains("token=")) return m3u8
+        val matcher = PATH_KEY_REGEX.matcher(m3u8)
+        if (!matcher.find()) return m3u8
+        return try {
+            val pathKey = "${matcher.group(1).lowercase()}/${matcher.group(2).lowercase()}"
+            val expiry = System.currentTimeMillis() / 1000 + 90
+            val payload = "$expiry|$pathKey"
+            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+            mac.init(javax.crypto.spec.SecretKeySpec(MEGAPLAY_TOKEN_SECRET.toByteArray(Charsets.UTF_8), "HmacSHA256"))
+            val sig = android.util.Base64.encodeToString(
+                mac.doFinal(payload.toByteArray(Charsets.UTF_8)),
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
+            ).trimEnd('=')
+            val payloadB64 = android.util.Base64.encodeToString(
+                payload.toByteArray(Charsets.UTF_8),
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP,
+            ).trimEnd('=')
+            val sep = if (m3u8.contains('?')) "&" else "?"
+            val signed = "$m3u8${sep}token=$payloadB64.$sig"
+            AnikotoLog.d("resolveVidTube: MegaPlay CDN token appended (${signed.length - m3u8.length} chars)")
+            signed
+        } catch (e: Exception) {
+            AnikotoLog.w("resolveVidTube: MegaPlay token generation failed — ${e.message?.take(60)}")
+            m3u8
+        }
     }
 
     suspend fun resolveVidTube(iframeUrl: String, audioType: String, hosterName: String): AudioStream? {
@@ -263,11 +312,15 @@ class AnikotoExtractors(
                 AnikotoLog.i("resolveVidTube: candidate s=$s → ${variantInfos.size} variants: ${variantInfos.joinToString { "${it.quality}(${it.bandwidth})" }}")
                 // ★ session 62: skip candidates whose master URL we already verified this run —
                 // their ladder is identical by definition, only the getSources call is wasted.
-                if (candidate.masterM3u8 in seenMasters) {
+                // ★ session 63 review m3: key on the BASE master URL (token stripped) — the
+                // session-63 CDN token embeds a 90s expiry, so the SAME master tokened in
+                // different seconds would otherwise defeat the dedup.
+                val dedupKey = candidate.masterM3u8.substringBefore("token=").trimEnd('?', '&')
+                if (dedupKey in seenMasters) {
                     AnikotoLog.d("resolveVidTube: candidate s=$s resolves to an already-verified master — skipping")
                     continue
                 }
-                seenMasters += candidate.masterM3u8
+                seenMasters += dedupKey
                 AnikotoLog.d("resolveVidTube: [4/5] fetching ${variantInfos.size} variant playlists in parallel (NO ad filter)")
                 val variants = loadVariantPlaylists(variantInfos, host)
                 val label = if (s.isBlank()) "default-CDN" else "s=$s"
@@ -397,6 +450,66 @@ class AnikotoExtractors(
             }.awaitAll().filterNotNull()
         }
 
+    // ── Flow C: direct m3u8 (mapper servers that hand out plain HLS URLs) ─────
+
+    /**
+     * ★ session 63 (v16.16, review fix m2): yuzono/anikototheme parity — the mapper can
+     * return entries whose URL IS the master m3u8 (no player page, no data-id). The old
+     * dispatch sent those into resolveVidTube, which found no data-id and silently
+     * dropped the server. Parse the master + variants directly instead.
+     */
+    suspend fun resolveDirectM3u8(m3u8Url: String, audioType: String, hosterName: String, referer: String): AudioStream? {
+        AnikotoLog.i("resolveDirectM3u8: START hoster=$hosterName audio=$audioType url=${AnikotoLog.trunc(m3u8Url, 80)}")
+        return try {
+            val headers = Headers.Builder()
+                .set("User-Agent", BROWSER_UA)
+                .set("Referer", referer)
+                .set("Accept", "*/*")
+                .build()
+            val masterText = fetchString(m3u8Url, headers)
+            if (!masterText.startsWith("#EXTM3U")) {
+                AnikotoLog.e("resolveDirectM3u8: not an m3u8 (starts with ${masterText.take(40)})")
+                return null
+            }
+            val variantInfos = parseMasterPlaylist(masterText, m3u8Url)
+            if (variantInfos.isEmpty()) {
+                AnikotoLog.e("resolveDirectM3u8: no variants in master m3u8")
+                return null
+            }
+            AnikotoLog.i("resolveDirectM3u8: ${variantInfos.size} variants: ${variantInfos.joinToString { it.quality }}")
+            val variantDataList = coroutineScope {
+                variantInfos.map { v ->
+                    async(Dispatchers.IO) {
+                        variantSemaphore.withPermit {
+                            try {
+                                val varText = fetchString(v.url, headers)
+                                val segs = parseVariantSegments(varText, v.url, filterAds = false)
+                                if (segs.isNotEmpty()) VariantData(v.quality, v.bandwidth, v.resolution, segs) else null
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                AnikotoLog.e("resolveDirectM3u8:   variant ${v.quality} fetch FAILED: ${e.message}")
+                                null
+                            }
+                        }
+                    }
+                }.awaitAll().filterNotNull()
+            }
+            if (variantDataList.isEmpty()) {
+                AnikotoLog.e("resolveDirectM3u8: no variants could be loaded")
+                return null
+            }
+            val audioLabel = if (audioType == "sub") "H-SUB" else "A-DUB"
+            AnikotoLog.i("resolveDirectM3u8: SUCCESS hoster=$hosterName audio=$audioLabel variants=${variantDataList.size} referer=$referer")
+            AudioStream(audioType, audioLabel, hosterName, variantDataList, emptyList(), referer)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AnikotoLog.e("resolveDirectM3u8: FAILED hoster=$hosterName audio=$audioType", e)
+            return null
+        }
+    }
+
     // ── Flow B: Kiwi-Stream (base64 fragment → direct m3u8) ──────────────────
 
     suspend fun resolveKiwi(iframeUrl: String, audioType: String, hosterName: String): AudioStream? {
@@ -411,6 +524,7 @@ class AnikotoExtractors(
             val masterM3u8 = try {
                 android.util.Base64.decode(fragment, android.util.Base64.DEFAULT)
                     .toString(Charsets.ISO_8859_1)
+                    .trim() // ★ session 63 review n3: tolerate whitespace-padded fragments
             } catch (e: Exception) {
                 AnikotoLog.e("resolveKiwi: base64 decode failed", e)
                 return null
@@ -421,14 +535,49 @@ class AnikotoExtractors(
             }
             AnikotoLog.i("resolveKiwi: decoded m3u8=${AnikotoLog.trunc(masterM3u8, 80)}")
 
-            // Step 2: parse master m3u8 (Referer: vibeplayer.site)
+            // ★ session 63 (v16.16): HOST_MAP — yuzono/anikototheme parity.
+            // The mewcdn player page can carry `var HOST_MAP = {"origin":"proxy", ...}` —
+            // the player rewrites the decoded m3u8's host through it before fetching.
+            // Without this, a mapped CDN host would be fetched directly and fail (or the
+            // correct proxy host would never be used). Defensive: any failure keeps the
+            // original URL and the previous referer behavior.
+            var effectiveM3u8 = masterM3u8
+            var playerReferer = "https://vibeplayer.site/"
+            try {
+                val playerHost = extractHost(iframeUrl) ?: "mewcdn.online"
+                val pageHtml = fetchString(
+                    iframeUrl,
+                    Headers.Builder()
+                        .set("User-Agent", BROWSER_UA)
+                        .set("Referer", "https://$playerHost/")
+                        .set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .build(),
+                )
+                val hostMap = parseHostMap(pageHtml)
+                if (hostMap.isNotEmpty()) {
+                    for ((origin, proxy) in hostMap) {
+                        if (effectiveM3u8.contains(origin)) {
+                            effectiveM3u8 = effectiveM3u8.replace(origin, proxy)
+                            AnikotoLog.i("resolveKiwi: HOST_MAP applied $origin → $proxy")
+                            break
+                        }
+                    }
+                }
+                playerReferer = "https://$playerHost/"
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                AnikotoLog.w("resolveKiwi: player page/HOST_MAP fetch failed (${e.message?.take(60)}) — using decoded URL directly")
+            }
+
+            // Step 2: parse master m3u8 (Referer: the player host — where the m3u8 lives).
             AnikotoLog.d("resolveKiwi: [2/4] fetching master m3u8")
-            val masterText = fetchString(masterM3u8, kiwiHeaders())
+            val masterText = fetchString(effectiveM3u8, kiwiHeaders(playerReferer))
             if (!masterText.startsWith("#EXTM3U")) {
                 AnikotoLog.e("resolveKiwi: master is not m3u8 (starts with ${masterText.take(40)})")
                 return null
             }
-            val variantInfos = parseMasterPlaylist(masterText, masterM3u8)
+            val variantInfos = parseMasterPlaylist(masterText, effectiveM3u8)
             if (variantInfos.isEmpty()) {
                 AnikotoLog.e("resolveKiwi: no variants in master m3u8")
                 return null
@@ -443,7 +592,7 @@ class AnikotoExtractors(
                     async(Dispatchers.IO) {
                         variantSemaphore.withPermit {
                             try {
-                                val varText = fetchString(v.url, kiwiHeaders())
+                                val varText = fetchString(v.url, kiwiHeaders(playerReferer))
                                 val segs = parseVariantSegments(varText, v.url, filterAds = false)
                                 AnikotoLog.d("resolveKiwi:   variant ${v.quality}: ${segs.size} segments (no filter)")
                                 if (segs.isNotEmpty()) VariantData(v.quality, v.bandwidth, v.resolution, segs) else null
@@ -464,9 +613,13 @@ class AnikotoExtractors(
 
             // Kiwi labels: mapper "sub" = H-SUB, "dub" = A-DUB
             val audioLabel = if (audioType == "sub") "H-SUB" else "A-DUB"
-            // ★ per-stream Referer for Kiwi: vibeplayer.site (where the m3u8 lives).
-            // The proxy uses this for segment fetches. Matches the kiwiHeaders() used above.
-            val streamReferer = "https://vibeplayer.site/"
+            // ★ per-stream Referer for Kiwi: the player host (where the m3u8 lives).
+            // The proxy uses this for segment fetches. Matches the kiwiHeaders(playerReferer)
+            // used for the master AND every variant playlist fetch above (session 63 review
+            // fix M1 — previously the variant fetch used the default vibeplayer referer,
+            // giving three different referers in one flow, exactly the mismatch that
+            // HOST_MAP-mapped hosts would reject).
+            val streamReferer = playerReferer
             AnikotoLog.i("resolveKiwi: SUCCESS hoster=$hosterName audio=$audioLabel variants=${variantDataList.size} referer=$streamReferer")
             return AudioStream(audioType, audioLabel, hosterName, variantDataList, emptyList(), streamReferer)
         } catch (e: Exception) {
@@ -610,11 +763,26 @@ class AnikotoExtractors(
         .set("Accept", "*/*")
         .build()
 
-    private fun kiwiHeaders() = Headers.Builder()
+    private fun kiwiHeaders(referer: String = "https://vibeplayer.site/") = Headers.Builder()
         .set("User-Agent", BROWSER_UA)
-        .set("Referer", "https://vibeplayer.site/")
+        .set("Referer", referer)
+        .set("Origin", referer.trimEnd('/'))
         .set("Accept", "*/*")
         .build()
+
+    /**
+     * ★ session 63: parse `var HOST_MAP = {"origin":"proxy", ...}` from a mewcdn player
+     * page (yuzono parity). Returns an empty map when the page carries no HOST_MAP.
+     */
+    private fun parseHostMap(html: String): Map<String, String> {
+        return try {
+            val mapMatch = HOST_MAP_REGEX.find(html) ?: return emptyMap()
+            HOST_ENTRY_REGEX.findAll(mapMatch.groupValues[1])
+                .associate { it.groupValues[1] to it.groupValues[2] }
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
 
     private fun inferLang(label: String): String = when {
         label.contains("English", true) -> "eng"
@@ -646,5 +814,13 @@ class AnikotoExtractors(
         private const val BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         private val DATA_ID_REGEX: Pattern = Pattern.compile("""data-id="(\d+)"""")
         private val HOST_REGEX: Pattern = Pattern.compile("https?://([^/]+)")
+
+        // ★ session 63: MegaPlay CDN token (yuzono parity) — secret + path signature.
+        private const val MEGAPLAY_TOKEN_SECRET = "MpCdnT0k3n!9f2K#xQ7vL5mR8wN1pY4s"
+        private val PATH_KEY_REGEX: Pattern = Pattern.compile("/([a-f0-9]{32})/([a-f0-9]{32})/", Pattern.CASE_INSENSITIVE)
+
+        // ★ session 63: mewcdn player HOST_MAP patterns (yuzono parity).
+        private val HOST_MAP_REGEX = Regex("""var HOST_MAP\s*=\s*\{([^}]+)\}""")
+        private val HOST_ENTRY_REGEX = Regex("""'([^']+)'\s*:\s*'([^']+)'""")
     }
 }

@@ -39,7 +39,16 @@ android {
         // (Vidstream-2/1beta/HD-2 share one data-id); metadata: no more poisoned empty
         // cache, parallel sources, short-timeout client, AniList OkHttp-first + cached-id
         // outage fallback, Jikan 429 retry, 25s enrich ceiling; server picker refreshed.
-        val extVersionCode = 13
+        // ★ session 61 / v16.14 (RELEASE): WebView URL fix + quality-list robustness —
+        // (1) getAnimeUrl overridden: "Open in WebView" on an anime previously opened
+        //     baseUrl + bare-slug → site 404 page ("random URL" bug); now /watch/<slug>.
+        // (2) animeSlug() normalization at every anime-url entry point (details/episodes/
+        //     WebView/search parsing) — domain-independent, tolerant of old persisted shapes.
+        // (3) parseSearchItem slug extraction hardened against foreign-domain listing links.
+        // (4) CDN-candidate loop: partial variant loads (transient CDN failures) no longer
+        //     lock in a truncated quality list — remaining candidates are tried and the
+        //     fullest result wins; clean loads and single-variant masters keep the fast path.
+        val extVersionCode = 14
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

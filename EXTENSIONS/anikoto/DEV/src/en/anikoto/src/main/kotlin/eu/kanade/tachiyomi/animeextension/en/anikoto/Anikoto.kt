@@ -346,9 +346,19 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         val link = if (el.tagName() == "a" && el.hasClass("name")) el
             else el.selectFirst("a.name.d-title") ?: el.selectFirst("a[href*=/watch/]") ?: el
         val href = link.attr("href")
-        url = if (href.startsWith("http")) href.substringAfter(baseUrl) else href
-        // Normalize to just the slug: /watch/<slug>/ep-1 → <slug>
-        url = url.removePrefix("/watch/").substringBefore("/ep-")
+        // ★ session 61: robust slug extraction. The old chain
+        // (`href.substringAfter(baseUrl)` → `removePrefix("/watch/")`) returned the WHOLE
+        // foreign URL unchanged whenever the site served listing links from a different
+        // domain than our request domain (Kotlin's substringAfter returns the original
+        // string when the delimiter is absent) — corrupting anime.url into a malformed
+        // hybrid ("https://other…https://…") that broke details requests AND WebView.
+        // Extract the /watch/ path directly from the raw href instead — domain-independent.
+        url = if (href.contains("/watch/")) {
+            animeSlug(href)
+        } else {
+            // Legacy fallback for hrefs without /watch/ (not seen on the live site).
+            animeSlug(if (href.startsWith("http")) href.substringAfter(baseUrl) else href)
+        }
         title = link.selectFirst(".name")?.text()?.trim()
             ?: link.text()?.trim() ?: "Unknown"
         // Find img: check el itself, then descendants, then parent (for sibling img)
@@ -358,8 +368,26 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
     }
 
     // ── Anime Details ────────────────────────────────────────────────────
+    /**
+     * ★ session 61: normalize ANY persisted anime.url shape to the bare site slug.
+     *
+     * Current code stores the bare slug ("beyblade-x-aj6fn"), but older app versions may
+     * have persisted other shapes ("/watch/<slug>", "/watch/<slug>/ep-N", or a full URL).
+     * Normalizing at every entry point keeps details/episode/WebView requests correct even
+     * for anime saved by older builds — and protects against the site ever serving listing
+     * links from a different domain than our request domain.
+     */
+    private fun animeSlug(rawUrl: String): String {
+        val raw = rawUrl.trim().trimEnd('/')
+        return when {
+            raw.startsWith("http") -> raw.substringAfter("/watch/").substringBefore("/ep-")
+            raw.startsWith("/watch/") -> raw.removePrefix("/watch/").substringBefore("/ep-")
+            else -> raw.substringBefore("/ep-")
+        }
+    }
+
     override fun animeDetailsRequest(anime: SAnime): Request =
-        GET("$baseUrl/watch/${anime.url}/ep-1", headers)
+        GET("$baseUrl/watch/${animeSlug(anime.url)}/ep-1", headers)
 
     override fun animeDetailsParse(response: Response): SAnime {
         val doc = response.asJsoup()
@@ -415,9 +443,26 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
         }
     }
 
+    /**
+     * ★ session 61: Override getAnimeUrl — what the app's "Open in WebView" opens for an ANIME.
+     *
+     * ROOT CAUSE of the reported "WebView opens a random/incorrect URL": the default
+     * implementation returns `baseUrl + anime.url`, but this extension stores anime.url as
+     * the BARE SLUG (e.g. "the-exiled-heavy-knight-…") — so the default produced
+     * `https://anikototv.to/<slug>`, which is NOT a real page (live-verified 2026-10-07:
+     * the site returns its 404 "Error" page for /<slug>; the real page is /watch/<slug>).
+     * The episode-level counterpart [getEpisodeUrl] was already correct (session 43);
+     * this fixes the anime-level half.
+     *
+     * /watch/<slug> (no /ep- part) is live-verified 200 and renders the full watch page.
+     */
+    override fun getAnimeUrl(anime: SAnime): String {
+        return "$baseUrl/watch/${animeSlug(anime.url)}"
+    }
+
     // ── Episode List (with RC4 vrf + EpisodeMeta encoding) ───────────────
     override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
-        val slug = anime.url
+        val slug = animeSlug(anime.url)
         AnikotoLog.i("getEpisodeList: START slug=$slug")
 
         // ★ session 51: Pre-warm WebViewFetcher in background.

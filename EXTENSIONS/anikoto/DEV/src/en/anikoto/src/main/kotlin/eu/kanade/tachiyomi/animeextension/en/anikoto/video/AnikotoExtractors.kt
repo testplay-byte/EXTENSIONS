@@ -212,9 +212,21 @@ class AnikotoExtractors(
 
             // ★ session 60: a candidate wins only when master AND ≥1 variant verify; otherwise
             // we FALL THROUGH to the next candidate instead of aborting (see class kdoc).
+            // ★ session 61: partial-load robustness — a candidate that loads only SOME of the
+            // master's listed variants (transient CDN/network failure) is no longer accepted
+            // immediately; it is remembered as best-partial and the remaining candidates are
+            // tried. This prevents a transient 720p/360p playlist failure from permanently
+            // narrowing the quality list to 1080p-only ("only one resolution" symptom) when
+            // the episode actually has more qualities. Fast paths are unchanged: a candidate
+            // that loads ALL its listed variants is still accepted on the spot, so fully
+            // healthy episodes AND single-variant masters (1 == 1) resolve with zero extra
+            // requests. Only genuine partial failures pay for extra candidates.
             var chosenSources: SourcesData? = null
             var chosenVariants: List<VariantData> = emptyList()
             var winnerLabel = ""
+            var partialSources: SourcesData? = null
+            var partialVariants: List<VariantData> = emptyList()
+            var partialLabel = ""
             for (s in sCandidates) {
                 val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
                 val candidate = fetchAndVerifySources(host, "getSourcesNew", dataId, audioType, sSuffix)
@@ -240,10 +252,32 @@ class AnikotoExtractors(
                     AnikotoLog.w("resolveVidTube: candidate s=$s verified but 0 variants loaded — trying next candidate")
                     continue
                 }
-                chosenSources = candidate
-                chosenVariants = variants
-                winnerLabel = if (s.isBlank()) "default-CDN" else "s=$s"
-                break
+                if (variants.size >= variantInfos.size) {
+                    // All listed variants loaded — clean win, accept immediately.
+                    chosenSources = candidate
+                    chosenVariants = variants
+                    winnerLabel = if (s.isBlank()) "default-CDN" else "s=$s"
+                    break
+                }
+                AnikotoLog.w(
+                    "resolveVidTube: candidate s=$s loaded only ${variants.size}/${variantInfos.size} variants " +
+                        "(transient CDN failure?) — trying next candidate, keeping this as fallback",
+                )
+                if (variants.size > partialVariants.size) {
+                    partialSources = candidate
+                    partialVariants = variants
+                    partialLabel = if (s.isBlank()) "default-CDN" else "s=$s"
+                }
+            }
+            if (chosenSources == null && partialSources != null) {
+                // No candidate loaded its full variant list — use the fullest partial result.
+                AnikotoLog.w(
+                    "resolveVidTube: no fully-loading candidate — using best partial " +
+                        "($partialLabel, ${partialVariants.size} variants)",
+                )
+                chosenSources = partialSources
+                chosenVariants = partialVariants
+                winnerLabel = partialLabel
             }
             val sourcesData = chosenSources ?: run {
                 AnikotoLog.e("resolveVidTube: no candidate produced a verifiable stream (host=$host, sCandidates=$sCandidates)")
@@ -252,6 +286,17 @@ class AnikotoExtractors(
             val variantDataList = chosenVariants
             val masterM3u8 = sourcesData.masterM3u8
             AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)} (winner=$winnerLabel)")
+            // ★ session 61: make the "only one quality" case self-explanatory in logs.
+            // Live-verified 2026-10-07: some shows/episodes ship a single-variant HLS master
+            // (beyblade-x-aj6fn = 1080p-only, yuu-gi-ou go rush = 720p-only) — identical on
+            // every mirror, server entry, s-candidate and endpoint, and the site's own player
+            // shows the same single quality. It is a source limitation, NOT an extraction bug.
+            if (variantDataList.size == 1) {
+                AnikotoLog.i(
+                    "resolveVidTube: master has a SINGLE variant (${variantDataList[0].quality}) — " +
+                        "the site itself only serves this quality for this episode (not an extraction failure)",
+                )
+            }
             AnikotoLog.i("resolveVidTube: subs=${sourcesData.tracks.size} track(s)")
 
             // Step 5: build subtitles

@@ -48,7 +48,19 @@ android {
         // (4) CDN-candidate loop: partial variant loads (transient CDN failures) no longer
         //     lock in a truncated quality list — remaining candidates are tried and the
         //     fullest result wins; clean loads and single-variant masters keep the fast path.
-        val extVersionCode = 14
+        // ★ session 62 / v16.15 (RELEASE): preferred-domain logic fix + richer-ladder scan —
+        // (1) baseUrl was `by lazy` → the preference was read ONCE per process, so changing
+        //     Settings → Playback → Preferred domain had NO effect (browsing AND "Open in
+        //     WebView" stayed on the old domain until force-stop). Now a live getter that
+        //     re-reads on every access — domain switches apply to the very next request.
+        // (2) Thin-ladder richness scan: a full candidate win with ≤2 variants no longer ends
+        //     the s-candidate scan — remaining CDNs are probed (seen-master dedup keeps the
+        //     cost at ~1 getSources call each) and the RICHEST full result wins. Live-verified
+        //     2026-10-07: some shows (Sakamoto Days, Beyblade X) are 1080p-only at source on
+        //     EVERY candidate/endpoint; other shows list 1080/720/360. A settings note
+        //     ("About missing qualities") explains the source limitation to users, and the
+        //     preferred-server list gains the current live name "Vidstream-1".
+        val extVersionCode = 15
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

@@ -48,18 +48,34 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
 
     override val name = "AniKoto 180"
 
-    // ★ session 52: baseUrl is now USER-SELECTABLE (Settings → Playback → Preferred domain).
+    // ★ session 52: baseUrl is USER-SELECTABLE (Settings → Playback → Preferred domain).
     // All 6 official/verified mirror domains are offered; the default is the primary one.
-    // Safe design points:
+    //
+    // ★ session 62 FIX — user report: "if I change the preferred domain it does not get
+    //   applied; it still shows and opens the results from the other one."
+    //   ROOT CAUSE: this used to be `by lazy`, which read the preference ONCE and cached
+    //   the result for the WHOLE PROCESS. After the first request (or WebView open) the
+    //   old domain was frozen in — browsing, details, episodes AND "Open in WebView" all
+    //   kept using it no matter what the setting said, until the app was force-stopped.
+    //   FIX: a live getter that re-reads the preference on EVERY access. A domain switch
+    //   now applies to the very next request — no restart needed. All other settings
+    //   already worked this way (typed getters re-read each time), which is why ONLY the
+    //   domain appeared "stuck".
+    //
+    // Safe design points (unchanged):
     // - The source ID = MD5("anikoto 180/en/11") derives from name/lang/versionId — NOT the
     //   domain — so switching mirrors never orphans saved anime.
-    // - Episode URLs are stored as relative paths ("/watch/slug/ep-N#fragment") by design,
-    //   so previously saved episodes resolve against the newly selected domain automatically.
-    // - `by lazy` defers the SharedPreferences read until the first request, when Injekt is ready.
-    override val baseUrl: String by lazy {
-        val saved = preferences.getString(AnikotoSettings.PREF_DOMAIN_KEY, null)
-        saved?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL
-    }
+    // - anime.url is stored as the bare slug and episode URLs as relative paths
+    //   ("/watch/slug/ep-N#fragment") by design, so previously saved items resolve against
+    //   the newly selected domain automatically.
+    // - try/catch: if preferences are somehow not ready yet (Injekt not initialized), fall
+    //   back to the primary domain instead of crashing; the next access retries the lazy.
+    override val baseUrl: String
+        get() = try {
+            settings.preferredDomain.trim().takeIf { it.isNotEmpty() } ?: DEFAULT_BASE_URL
+        } catch (e: Exception) {
+            DEFAULT_BASE_URL
+        }
 
     override val lang = "en"
     override val supportsLatest = true

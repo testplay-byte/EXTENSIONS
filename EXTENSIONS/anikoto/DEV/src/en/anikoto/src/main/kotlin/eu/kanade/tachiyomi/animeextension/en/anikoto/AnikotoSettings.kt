@@ -204,22 +204,40 @@ class AnikotoSettings(private val prefs: SharedPreferences) {
             ListPreference(context).apply {
                 key = PREF_SERVER_KEY
                 title = "Preferred server"
-                // ★ session 60: refreshed for the site's CURRENT server lineup (verified live
-                // 2026-09-17: Vidstream-2, Vidstream-1beta, HD-2). Legacy names stay listed —
+                // ★ session 60: refreshed for the site's server lineup. ★ session 62: added
+                // "Vidstream-1" — the CURRENT live lineup is HD-1 / Vidstream-2 / Vidstream-1
+                // (verified 2026-10-07 on Sakamoto Days ep-4). Legacy names stay listed —
                 // the site rotates server names over time and old entries still match if a
                 // name ever returns (the sorter uses contains(), unknown names are harmless).
                 entries = arrayOf(
                     "Auto",
-                    "Vidstream-2", "Vidstream-1beta", "HD-2",
-                    "VidPlay-1", "HD-1", "VidCloud-1", "Kiwi-Stream",
+                    "Vidstream-1", "Vidstream-2", "Vidstream-1beta", "HD-1", "HD-2",
+                    "VidPlay-1", "VidCloud-1", "Kiwi-Stream",
                 )
                 entryValues = arrayOf(
                     "auto",
-                    "Vidstream-2", "Vidstream-1beta", "HD-2",
-                    "VidPlay-1", "HD-1", "VidCloud-1", "Kiwi-Stream",
+                    "Vidstream-1", "Vidstream-2", "Vidstream-1beta", "HD-1", "HD-2",
+                    "VidPlay-1", "VidCloud-1", "Kiwi-Stream",
                 )
                 setDefaultValue(PREF_SERVER_DEFAULT)
                 summary = "Currently: %s"
+            }.also(::addPreference)
+
+            // ★ session 62: user-facing explanation for the recurring "only one/two
+            // resolutions" reports. Live-verified 2026-10-07: several shows (e.g. Sakamoto
+            // Days, Beyblade X) ship a SINGLE-variant 1080p-only HLS master — the site's own
+            // player shows the same single quality, so nothing was dropped by the extension.
+            // The site's other qualities for such shows exist ONLY as file-host downloads
+            // (360p/720p/1080p pahe links), which are not streamable. Sub and Dub appear as
+            // separate entries by design.
+            Preference(context).apply {
+                key = "pref_quality_note"
+                isSelectable = false
+                title = "About missing qualities"
+                summary = "Some shows/episodes are single-quality at the source — the site's " +
+                    "own player shows the same single quality (e.g. 1080p only). The site's " +
+                    "other qualities are download-only files, not streams. Sub and Dub count " +
+                    "as separate entries. This is a site limitation, not an extension bug."
             }.also(::addPreference)
         }
 

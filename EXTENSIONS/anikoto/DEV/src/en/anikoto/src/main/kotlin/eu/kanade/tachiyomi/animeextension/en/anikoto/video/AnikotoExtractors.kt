@@ -221,12 +221,27 @@ class AnikotoExtractors(
             // that loads ALL its listed variants is still accepted on the spot, so fully
             // healthy episodes AND single-variant masters (1 == 1) resolve with zero extra
             // requests. Only genuine partial failures pay for extra candidates.
+            // ★ session 62: THIN-LADDER RICHNESS SCAN — live-verified 2026-10-07 (Sakamoto
+            // Days ep-4, user-reported "only two resolutions"): the site now serves SOME
+            // shows a single-variant (1080p-only) master on EVERY s-candidate (all 6
+            // candidates × both endpoints probed — identical one-line ladders), while other
+            // shows list 1080/720/360. Since a LATER CDN candidate can carry a deeper
+            // ladder than the first one, a full win with a THIN ladder (≤2 variants) no
+            // longer ends the scan: the remaining candidates are still probed and the
+            // RICHEST full result wins (ties keep the first — the site player's own CDN
+            // choice). Healthy ladders (>2 variants) still break immediately — zero extra
+            // requests for fully-working episodes. A seenMasters set skips candidates that
+            // resolve to an ALREADY-VERIFIED master URL (different s= values frequently
+            // share one master URL), so the extra cost is ~1 getSources call per
+            // remaining candidate.
             var chosenSources: SourcesData? = null
             var chosenVariants: List<VariantData> = emptyList()
             var winnerLabel = ""
             var partialSources: SourcesData? = null
             var partialVariants: List<VariantData> = emptyList()
             var partialLabel = ""
+            var fullVariantCount = 0
+            val seenMasters = mutableSetOf<String>()
             for (s in sCandidates) {
                 val sSuffix = if (s.isBlank()) "" else "&s=" + URLEncoder.encode(s, "UTF-8")
                 val candidate = fetchAndVerifySources(host, "getSourcesNew", dataId, audioType, sSuffix)
@@ -246,18 +261,39 @@ class AnikotoExtractors(
                     continue
                 }
                 AnikotoLog.i("resolveVidTube: candidate s=$s → ${variantInfos.size} variants: ${variantInfos.joinToString { "${it.quality}(${it.bandwidth})" }}")
+                // ★ session 62: skip candidates whose master URL we already verified this run —
+                // their ladder is identical by definition, only the getSources call is wasted.
+                if (candidate.masterM3u8 in seenMasters) {
+                    AnikotoLog.d("resolveVidTube: candidate s=$s resolves to an already-verified master — skipping")
+                    continue
+                }
+                seenMasters += candidate.masterM3u8
                 AnikotoLog.d("resolveVidTube: [4/5] fetching ${variantInfos.size} variant playlists in parallel (NO ad filter)")
                 val variants = loadVariantPlaylists(variantInfos, host)
+                val label = if (s.isBlank()) "default-CDN" else "s=$s"
                 if (variants.isEmpty()) {
                     AnikotoLog.w("resolveVidTube: candidate s=$s verified but 0 variants loaded — trying next candidate")
                     continue
                 }
                 if (variants.size >= variantInfos.size) {
-                    // All listed variants loaded — clean win, accept immediately.
-                    chosenSources = candidate
-                    chosenVariants = variants
-                    winnerLabel = if (s.isBlank()) "default-CDN" else "s=$s"
-                    break
+                    // All listed variants loaded — full result. Keep the FIRST full win
+                    // unless a later candidate offers a STRICTLY RICHER ladder.
+                    if (chosenSources == null || variantInfos.size > fullVariantCount) {
+                        chosenSources = candidate
+                        chosenVariants = variants
+                        winnerLabel = label
+                        fullVariantCount = variantInfos.size
+                    }
+                    if (variantInfos.size > THIN_LADDER_MAX) {
+                        // Healthy multi-variant ladder — fast path, stop scanning.
+                        break
+                    }
+                    // Thin ladder (1–2 variants) — keep scanning for a richer CDN candidate.
+                    AnikotoLog.i(
+                        "resolveVidTube: candidate s=$s is a full win but THIN (${variantInfos.size} variant(s)) — " +
+                            "scanning remaining candidates for a richer ladder",
+                    )
+                    continue
                 }
                 AnikotoLog.w(
                     "resolveVidTube: candidate s=$s loaded only ${variants.size}/${variantInfos.size} variants " +
@@ -266,7 +302,7 @@ class AnikotoExtractors(
                 if (variants.size > partialVariants.size) {
                     partialSources = candidate
                     partialVariants = variants
-                    partialLabel = if (s.isBlank()) "default-CDN" else "s=$s"
+                    partialLabel = label
                 }
             }
             if (chosenSources == null && partialSources != null) {
@@ -288,9 +324,11 @@ class AnikotoExtractors(
             AnikotoLog.i("resolveVidTube: m3u8=${AnikotoLog.trunc(masterM3u8, 80)} (winner=$winnerLabel)")
             // ★ session 61: make the "only one quality" case self-explanatory in logs.
             // Live-verified 2026-10-07: some shows/episodes ship a single-variant HLS master
-            // (beyblade-x-aj6fn = 1080p-only, yuu-gi-ou go rush = 720p-only) — identical on
-            // every mirror, server entry, s-candidate and endpoint, and the site's own player
-            // shows the same single quality. It is a source limitation, NOT an extraction bug.
+            // (beyblade-x-aj6fn = 1080p-only, sakamoto-days = 1080p-only on every episode,
+            // every mirror, server entry, s-candidate and endpoint — the raw master text
+            // contains exactly one #EXT-X-STREAM-INF plus an I-FRAME trick-play track), and
+            // the site's own player shows the same single quality. It is a source limitation,
+            // NOT an extraction bug. The settings screen carries a user-facing note about it.
             if (variantDataList.size == 1) {
                 AnikotoLog.i(
                     "resolveVidTube: master has a SINGLE variant (${variantDataList[0].quality}) — " +
@@ -589,6 +627,11 @@ class AnikotoExtractors(
     }
 
     companion object {
+        // ★ session 62: full wins with ≤ this many variants keep scanning the remaining
+        // s-candidates for a richer ladder (see resolveVidTube). Ladders above this break
+        // immediately — healthy episodes pay zero extra requests.
+        private const val THIN_LADDER_MAX = 2
+
         // ★ session 51: limit concurrent variant playlist fetches to 2.
         // With N server tasks × M variants, parallel fetching could create 40+ concurrent
         // requests, overwhelming the CDN. The semaphore limits each server's variant

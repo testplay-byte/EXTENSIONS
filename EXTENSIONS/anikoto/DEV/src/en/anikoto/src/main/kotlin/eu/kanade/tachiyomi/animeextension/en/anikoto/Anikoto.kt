@@ -431,7 +431,9 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
                     raw.substringAfter("/watch/").substringBefore("/ep-").substringAfterLast('/')
                 } else {
                     // Malformed legacy URL without /watch/ — the slug is the last segment.
-                    raw.substringAfterLast('/').substringBefore("/ep-")
+                    // ★ session 64 review: strip /ep-N FIRST so "host/slug/ep-4" (swapped
+                    // segment order) still yields "slug", not "ep-4".
+                    raw.substringBefore("/ep-").substringAfterLast('/')
                 }
             raw.startsWith("/watch/") -> raw.removePrefix("/watch/").substringBefore("/ep-")
             else -> raw.substringBefore("/ep-")
@@ -657,6 +659,8 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
                 enrichedCount++
             }
             AnikotoLog.i("enrichEpisodesWithMetadata: enriched $enrichedCount/${episodes.size} episodes")
+        } catch (e: CancellationException) {
+            throw e // ★ session 64 review: propagate cancellation (episode list load aborted)
         } catch (e: Exception) {
             AnikotoLog.w("enrichEpisodesWithMetadata: failed — ${e.message}. Episodes will load without enrichment.")
         }
@@ -723,7 +727,9 @@ class Anikoto : AnimeHttpSource(), ConfigurableAnimeSource {
                 try {
                     AnikotoLog.d("PATH A: GET $baseUrl/ajax/server/list?servers=${AnikotoLog.trunc(meta.dataIds, 50)}")
                     val primaryResp = client.newCall(
-                        GET("$baseUrl/ajax/server/list?servers=${meta.dataIds}", xhrHeaders("$baseUrl/watch/${meta.slug}/ep-1"))
+                        // ★ session 64 review: URL-encode dataIds — a no-op for today's numeric CSV
+                        // but future-proof against base64 '+'/'=' being decoded as space.
+                        GET("$baseUrl/ajax/server/list?servers=${URLEncoder.encode(meta.dataIds, "UTF-8")}", xhrHeaders("$baseUrl/watch/${meta.slug}/ep-1"))
                     ).awaitSuccess()
                     val pJson = json.decodeFromString<ServerListResponse>(primaryResp.body.string())
                     AnikotoLog.d("PATH A: parsed status=${pJson.status}, result HTML length = ${pJson.result.length}")

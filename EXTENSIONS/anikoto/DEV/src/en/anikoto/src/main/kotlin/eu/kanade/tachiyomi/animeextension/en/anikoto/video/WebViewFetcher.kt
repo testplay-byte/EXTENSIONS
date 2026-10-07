@@ -150,6 +150,11 @@ class WebViewFetcher(
             if (webView != null && webViewReady) return
             mainHandler.post {
                 try {
+                    // ★ session 64 review: if a warm-up WebView is still loading (not ready
+                    // yet), this reassignment used to orphan it (never destroyed). The field
+                    // is only ever mutated on the main thread, so destroying the replaced
+                    // instance here is both correct-threaded and leak-free.
+                    webView?.destroy()
                     webView = WebView(context).apply {
                         settings.javaScriptEnabled = true
                         settings.domStorageEnabled = true

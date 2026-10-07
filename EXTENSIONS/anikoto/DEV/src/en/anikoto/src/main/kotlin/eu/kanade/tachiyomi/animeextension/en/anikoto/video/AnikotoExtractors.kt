@@ -409,6 +409,8 @@ class AnikotoExtractors(
             val streamReferer = "https://$host/"
             AnikotoLog.i("resolveVidTube: SUCCESS hoster=$hosterName audio=$audioLabel variants=${variantDataList.size} subs=${subtitles.size} referer=$streamReferer")
             return AudioStream(audioType, audioLabel, hosterName, variantDataList, subtitles, streamReferer)
+        } catch (e: CancellationException) {
+            throw e // ★ session 64 review: never swallow cancellation (matches loadVariantPlaylists invariant)
         } catch (e: Exception) {
             AnikotoLog.e("resolveVidTube: FAILED hoster=$hosterName audio=$audioType", e)
             return null
@@ -622,6 +624,8 @@ class AnikotoExtractors(
             val streamReferer = playerReferer
             AnikotoLog.i("resolveKiwi: SUCCESS hoster=$hosterName audio=$audioLabel variants=${variantDataList.size} referer=$streamReferer")
             return AudioStream(audioType, audioLabel, hosterName, variantDataList, emptyList(), streamReferer)
+        } catch (e: CancellationException) {
+            throw e // ★ session 64 review: never swallow cancellation
         } catch (e: Exception) {
             AnikotoLog.e("resolveKiwi: FAILED hoster=$hosterName audio=$audioType", e)
             return null
@@ -719,6 +723,8 @@ class AnikotoExtractors(
                 if (!resp.isSuccessful) throw RuntimeException("HTTP ${resp.code}")
                 resp.body?.string() ?: throw RuntimeException("Empty body")
             }
+        } catch (e: CancellationException) {
+            throw e // ★ session 64 review: cancellation must not divert into a WebView fallback
         } catch (e: Exception) {
             // Fallback to WebView for WAF hosts on any error
             if (isWafBlockedHost(url) && webViewFetcher != null) {

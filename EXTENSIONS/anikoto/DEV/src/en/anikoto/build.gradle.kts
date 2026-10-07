@@ -88,7 +88,15 @@ android {
         //     limitation — re-verified 2026-10-07 across every server × CDN candidate ×
         //     endpoint × both domains, with and without the CDN token; the site's other
         //     qualities are download-only pahe links (settings note updated).
-        val extVersionCode = 16
+        // ★ v16.13 = the FIRST dist-repo release after v16.12 (Confused-Creature-180
+        //     dist repo numbering; user's explicit instruction, session 64). Per the
+        //     session-58 precedent, internal test-build numbers are NOT reserved —
+        //     16.13-test…16.16 existed only on the build repo; the public dist line
+        //     jumps 16.12 → 16.13 and carries ALL of their fixes.
+        //     Side effect (documented, session-58 precedent): devices on the 16.14-16.16
+        //     test builds (codes 14-16) are not offered the 16.13 in-app update — they
+        //     sideload the identical-code APK or wait for the next dist release.
+        val extVersionCode = 13
         val extVersionId = 11    // ★ STABLE — do NOT bump with versionCode. See EXTENSIONS/anikoto/MEMORY/sites/getsources-migration-and-id-analysis.md §2.
                                   // The source id = MD5("anikoto 180/en/$extVersionId"). Bumping this orphans saved anime.
                                   // Only change if the site's URL structure breaks (domain change).

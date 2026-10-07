@@ -21,7 +21,7 @@
 | **versionName** | `16.13` | = `16.<extVersionCode>` (auto-derived) |
 | **Target site** | `anikototv.to` | |
 | **Signing key** | `anikoto-release.jks` (SHA-256 `B4:67:CA:…:6A:5A`, alias `anikoto`) | At `DEV/anikoto-release.jks` — keep secure |
-| **Current release** | `aniyomi-en.anikoto180-v16.13-release.apk` | 296,874 B · MD5 `e703c9b9bcd9eabb7a9cced6a75c7518` · SHA256 `4514aa25…240c3` · published 2026-10-07 (session 64, DIST release) |
+| **Current release** | `aniyomi-en.anikoto180-v16.13-release.apk` | 296,874 B · MD5 `21f9e7f8c5d8cf15819ba6cade877416` · SHA256 `2f51bd5b…5dce0` · published 2026-10-07 (session 64, DIST release) |
 
 ## Build (⚠️ GitHub Actions ONLY — never install the Android SDK in a sandbox)
 

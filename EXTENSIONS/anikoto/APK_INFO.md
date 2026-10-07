@@ -11,8 +11,8 @@
 |----------|-------|
 | **File name** | `aniyomi-en.anikoto180-v16.13-release.apk` |
 | **File size** | 296,874 B (~290 KB) |
-| **MD5** | `e703c9b9bcd9eabb7a9cced6a75c7518` |
-| **SHA-256 (file)** | `4514aa2530f017bec4ab3d6381b4f8873bd4a7b06cd3cf64db9174868ab240c3` |
+| **MD5** | `21f9e7f8c5d8cf15819ba6cade877416` |
+| **SHA-256 (file)** | `2f51bd5be253c520ae7a23a9b364efcfedf9cc62d3ed90b805a6503f6df5dce0` |
 | **App label** | AniKoto 180 |
 | **Package name** | `eu.kanade.tachiyomi.animeextension.en.anikoto180` |
 | **Version** | `16.13` (versionCode=13) — first dist-repo release after v16.12; carries ALL internal 16.13-test…16.16 fixes |
